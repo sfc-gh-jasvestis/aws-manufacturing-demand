@@ -1,0 +1,15 @@
+-- Demand Optimization: Cortex Search
+USE SCHEMA MANUFACTURING_DEMAND.SEARCH;
+
+CREATE OR REPLACE CORTEX SEARCH SERVICE PLANNING_DOCS_SEARCH
+    ON (
+        SELECT DOC_ID, TITLE, CATEGORY, CONTENT
+        FROM RAW.PLANNING_DOCS
+    )
+    WAREHOUSE = CORTEX
+    TARGET_LAG = '1 hour'
+    EMBEDDING_MODEL = 'snowflake-arctic-embed-l-v2.0'
+    AS (
+        SEARCH_COLUMN => 'CONTENT',
+        COLUMNS => ['DOC_ID', 'TITLE', 'CATEGORY', 'CONTENT']
+    );
