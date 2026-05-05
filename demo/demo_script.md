@@ -1,103 +1,45 @@
-# Demand Optimization & Planning — Demo Script
+# Demo Script: Demand Forecast Optimization
+## ~70-second walkthrough — AWS + Snowflake
 
-## Story
+---
 
-You're Maria Santos, Planning Manager at a global manufacturer. Your weekly review reveals something alarming: Electronics forecast accuracy has cratered. Within 3.5 minutes, you'll trace the accuracy drop to a seasonal shift, discover $51.6M in overstock exposure, identify 200 rush orders eating into margins, and watch the ML model retrain with corrected signals.
+## The Story
+Electronics forecast accuracy at 56% — well below the 85% target. 156 SKUs at stockout risk. $85M of inventory at risk. Find the gap before the next stockout.
+
+---
 
 ## Personas
 
-| Persona | Title | Goal |
-|---------|-------|------|
-| **Maria Santos** | Planning Manager | Detect forecast drift early, rebalance inventory |
-| **David Kim** | Chief Supply Chain Officer | Capital efficiency, service level compliance |
+| Persona | Tool | What they care about |
+|---|---|---|
+| Demand Planner | Streamlit on Snowflake | Per-SKU accuracy, stockout/overstock, demand signals |
+| Operations COO | Amazon QuickSight + Amazon Q | Category accuracy trends, value-at-risk, capital tied up |
 
-## What's Built
+---
 
-| Layer | Object | Purpose |
-|-------|--------|---------|
-| Data | 500 products, 100K demand records, 50K inventory snapshots | Complete demand signal |
-| Dynamic Tables | FORECAST_ACCURACY, INVENTORY_HEALTH, DEMAND_SIGNALS | Real-time planning views |
-| ML | Demand Forecast Model (14-day horizon, 50 series) | Predictive demand |
-| Search | PLANNING_DOCS_SEARCH (80 docs) | Policy & procedure retrieval |
-| Semantic View | DEMAND_PLANNING_SEMANTIC_VIEW | Natural language analytics |
-| Agent | DEMAND_PLANNING_AGENT | Conversational planning assistant |
-| Streamlit | DEMAND_OPTIMIZATION_APP | Planning dashboard |
+## Script
 
-## Narrative Arc
+### [0:00–0:10] HOOK
+> "Electronics forecast accuracy at 56% — target is 85%. 156 SKUs at stockout risk. $85M of inventory tied up. Let's see what's happening."
 
-```
-REVIEW → DETECT → QUANTIFY → ROOT CAUSE → RETRAIN → REBALANCE
-  │         │         │           │           │          │
-  ▼         ▼         ▼           ▼           ▼          ▼
-Weekly   Electronics  $51.6M     Seasonal    ML model   Reduce
-review   58% acc.    overstock   shift in    corrects   DOS to
-         (target 85%)           demand      forecast   target 21
-```
+### [0:10–0:35] SNOWFLAKE — STREAMLIT
+> Open `MANUFACTURING_DEMAND.APP.DEMAND_OPTIMIZATION_APP`.
+> "Overview — red banner shows the Electronics gap. Forecast Accuracy page: weekly accuracy line by category, only Electronics drops below the 85% target. Inventory Health: four risk levels — STOCKOUT, LOW, HEALTHY, OVERSTOCK — and a Value at Risk by Category bar with Pharma the largest at $46M. Three Dynamic Tables refresh every five minutes."
 
-## Timed Script (3.5 minutes)
+### [0:35–0:50] CORTEX AI
+> "Ask the Data: 'How many SKUs are at stockout risk?' Cortex Analyst returns 156. Snowflake ML.FORECAST and ANOMALY_DETECTION models run natively on the same data — no separate ML platform, no data movement."
 
-### Opening — Planning Dashboard (0:00–0:20)
-- Open Streamlit app — DEMAND_OPTIMIZATION_APP
-- "I'm Maria Santos, running demand planning across 5 product categories"
-- KPI cards: 5 categories | 85% avg accuracy | $51.6M at risk | 200 rush orders
-- **Key visual:** Electronics accuracy card in red (58%)
+### [0:50–1:05] AWS
+> "QuickSight `mfg-demand-dashboard`: KPIs for accuracy, stockout, overstock, value-at-risk; trend line by category, value-at-risk by category. S3 stage `s3://sg-manufacturing-demos-2026/demand/` archives raw forecasts and POs. Amazon Q topic `mfg-demand-q`: the COO asks 'Which category has the lowest forecast accuracy?' from any device."
 
-### Beat 1 — Detect Forecast Drift (0:20–0:50)
-- Click Forecast Accuracy tab
-- "Electronics accuracy dropped to 58% — every other category is above 90%"
-- Show week-over-week decline chart
-- "This started 3 weeks ago. Something fundamental changed in demand patterns"
-- **Number:** 58% accuracy vs 91-94% for other categories
+### [1:05–1:10] CLOSE
+> "From RAW data in S3 to Snowflake Dynamic Tables to Streamlit and QuickSight — one pipeline, two audiences."
 
-### Beat 2 — Quantify the Damage (0:50–1:20)
-- Switch to Inventory Health view
-- Filter: CATEGORY = 'Electronics', RISK_LEVEL = 'OVERSTOCK'
-- "45 days of supply sitting in our warehouses — target is 21"
-- "That's $51.6M in capital tied up in excess inventory"
-- **Number:** 45 DOS, $51.6M overstock value
-
-### Beat 3 — Rush Order Cascade (1:20–1:50)
-- Show purchase orders tab
-- Filter: ORDER_TYPE = 'RUSH'
-- "200 rush orders in the last month — 82% are Electronics"
-- "Each rush order costs 3x standard shipping. We're bleeding margin"
-- **Number:** 200 rush orders, 82% Electronics, 3x cost multiplier
-
-### Beat 4 — Ask AI for Root Cause (1:50–2:30)
-- Open AI Assistant
-- Type: "Why did Electronics forecast accuracy drop below 60%?"
-- Agent analyzes: seasonal demand shift, new product launch cannibalization, supplier lead time changes
-- "The model identified a seasonal shift that wasn't in our training window"
-- **Key moment:** AI explains root cause with data evidence
-
-### Beat 5 — ML Retraining & Recommendations (2:30–3:10)
-- Type: "What should our rebalancing plan look like for Electronics?"
-- Agent recommends: retrain with extended seasonality, redistribute 30% of overstock, adjust safety stock from 35 to 21 days
-- Show forecast vs actual chart with correction
-- **Number:** Retrain brings accuracy to projected 82% within 2 weeks
-
-### Closing — Decision & Action (3:10–3:30)
-- Return to dashboard
-- "From a number on a screen to a complete rebalancing plan"
-- "Retrain the model, redistribute overstock, tighten safety stock"
-- "We just saved $51.6M in working capital exposure"
-- **Tagline:** "Catch forecast drift before it becomes a warehouse problem"
+---
 
 ## Pre-Recording Checklist
-
-- [ ] Streamlit app loaded with all 5 tabs
-- [ ] Electronics showing 58% accuracy (other categories 91-94%)
-- [ ] Inventory Health showing 45 DOS for Electronics
-- [ ] $51.6M value at risk visible
-- [ ] 200 rush orders in PO tab
-- [ ] Agent responding with root cause analysis
-- [ ] Search returning planning procedures
-- [ ] Warehouse CORTEX is STARTED
-
-## Key Questions to Anticipate
-
-1. **"How often does the forecast retrain?"** — Model can retrain on schedule (daily/weekly) or triggered by accuracy drift below threshold
-2. **"What's the cost of being wrong?"** — $51.6M overstock + 200 rush orders × 3x premium = ~$12M excess logistics cost
-3. **"Can this handle promotional demand?"** — Yes, external regressors (promotions, events) can be added to forecast model
-4. **"How do you handle new products with no history?"** — Cold-start uses category-level forecast, transitions to product-level after 30 days
-5. **"Integration with ERP?"** — S3 stage ingests from any ERP export; SAP/Oracle connectors available via Snowpipe
+- [ ] Verify Electronics avg accuracy ~56% in `FORECAST_ACCURACY`
+- [ ] Verify 4 risk levels populated in `INVENTORY_HEALTH`
+- [ ] Verify VAR spread across all 5 categories
+- [ ] Open https://app.snowflake.com/SFSEAPAC/sg_demo43/#/streamlit-apps/MANUFACTURING_DEMAND.APP.DEMAND_OPTIMIZATION_APP
+- [ ] Open https://us-west-2.quicksight.aws.amazon.com/sn/dashboards/mfg-demand-dashboard
