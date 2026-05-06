@@ -2,6 +2,6 @@ name: sf_env
 channels:
   - snowflake
 dependencies:
-  - plotly=5.24.1
+  - plotly
   - pandas
   - snowflake-snowpark-python
