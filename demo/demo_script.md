@@ -1,10 +1,10 @@
-# Demo Script: Demand Forecast Optimization
-## ~70-second walkthrough — AWS + Snowflake
+# Demo Script: Open Forecast Data Lake
+## ~70-second walkthrough — Snowflake + Apache Iceberg + AWS Glue + Athena + QuickSight
 
 ---
 
 ## The Story
-Electronics forecast accuracy at 56% — well below the 85% target. 156 SKUs at stockout risk. $85M of inventory at risk. Find the gap before the next stockout.
+Electronics forecast accuracy at 56% — target 85%. 156 SKUs at stockout risk. Snowflake runs the forecast; the result lands as Apache Iceberg on S3 and shows up in the customer's Glue catalog instantly — Athena and QuickSight read it without any copy job.
 
 ---
 
@@ -13,33 +13,33 @@ Electronics forecast accuracy at 56% — well below the 85% target. 156 SKUs at 
 | Persona | Tool | What they care about |
 |---|---|---|
 | Demand Planner | Streamlit on Snowflake | Per-SKU accuracy, stockout/overstock, demand signals |
-| Operations COO | Amazon QuickSight + Amazon Q | Category accuracy trends, value-at-risk, capital tied up |
+| Operations COO | Amazon Athena + QuickSight + Amazon Q | Same forecast, AWS-native consumption |
 
 ---
 
 ## Script
 
 ### [0:00–0:10] HOOK
-> "Electronics forecast accuracy at 56% — target is 85%. 156 SKUs at stockout risk. $85M of inventory tied up. Let's see what's happening."
+> "Electronics forecast at 56%, 156 SKUs at stockout risk. We run the forecast in Snowflake and publish it as Apache Iceberg — the customer's data lake, no copy."
 
-### [0:10–0:35] SNOWFLAKE — STREAMLIT
+### [0:10–0:30] STREAMLIT — Forecast Accuracy + Inventory Health
 > Open `MANUFACTURING_DEMAND.APP.DEMAND_OPTIMIZATION_APP`.
-> "Overview — red banner shows the Electronics gap. Forecast Accuracy page: weekly accuracy line by category, only Electronics drops below the 85% target. Inventory Health: four risk levels — STOCKOUT, LOW, HEALTHY, OVERSTOCK — and a Value at Risk by Category bar with Pharma the largest at $46M. Three Dynamic Tables refresh every five minutes."
+> "Forecast Accuracy page — only Electronics drops below the 85% line. Inventory Health: 156 STOCKOUT, $46M Pharma value-at-risk. Three Dynamic Tables refresh every 5 min."
 
-### [0:35–0:50] CORTEX AI
-> "Ask the Data: 'How many SKUs are at stockout risk?' Cortex Analyst returns 156. Snowflake ML.FORECAST and ANOMALY_DETECTION models run natively on the same data — no separate ML platform, no data movement."
+### [0:30–0:45] ICEBERG EXPORT (AWS Glue) — the AWS hero
+> Open page **Iceberg Export (AWS Glue)**.
+> "2,000 forecast rows written as Apache Iceberg under `s3://sg-retail-demos-2026/iceberg/manufacturing-demand/forecast/`. AWS Glue catalog `mfg_demand_iceberg` registers the table. Same schema, no copy job, no nightly sync."
 
-### [0:50–1:05] AWS
-> "QuickSight `mfg-demand-dashboard`: KPIs for accuracy, stockout, overstock, value-at-risk; trend line by category, value-at-risk by category. S3 stage `s3://sg-manufacturing-demos-2026/demand/` archives raw forecasts and POs. Amazon Q topic `mfg-demand-q`: the COO asks 'Which category has the lowest forecast accuracy?' from any device."
+### [0:45–1:00] ATHENA + QUICKSIGHT
+> "Paste the Athena query into the AWS console — same 2,000 rows. QuickSight dashboard `mfg-demand-dashboard` over Athena and the Amazon Q topic `mfg-demand-q` answer 'Which category has the lowest forecast accuracy?' from any phone."
 
-### [1:05–1:10] CLOSE
-> "From RAW data in S3 to Snowflake Dynamic Tables to Streamlit and QuickSight — one pipeline, two audiences."
+### [1:00–1:10] CLOSE
+> "Snowflake runs the forecast; Apache Iceberg + Glue makes it native to the customer's AWS estate. Same data, two consumption surfaces, zero ETL."
 
 ---
 
 ## Pre-Recording Checklist
-- [ ] Verify Electronics avg accuracy ~56% in `FORECAST_ACCURACY`
-- [ ] Verify 4 risk levels populated in `INVENTORY_HEALTH`
-- [ ] Verify VAR spread across all 5 categories
+- [ ] `SELECT * FROM MANUFACTURING_DEMAND.LAKE.VW_FORECAST_ICEBERG_STATS` returns 2,000 rows
+- [ ] Streamlit Iceberg page renders KPIs and sample
 - [ ] Open https://app.snowflake.com/SFSEAPAC/sg_demo43/#/streamlit-apps/MANUFACTURING_DEMAND.APP.DEMAND_OPTIMIZATION_APP
 - [ ] Open https://us-west-2.quicksight.aws.amazon.com/sn/dashboards/mfg-demand-dashboard
