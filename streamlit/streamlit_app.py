@@ -11,7 +11,7 @@ st.set_page_config(page_title="Demand Forecast Optimization", layout="wide", pag
 
 RISK_COLORS = {"STOCKOUT": "#E74C3C", "LOW": "#F39C12", "HEALTHY": "#2ECC71", "OVERSTOCK": "#3498DB"}
 
-page = st.sidebar.radio("Navigation", ["Overview", "Forecast Accuracy", "Inventory Health", "Demand Signals", "Ask Demand"], label_visibility="collapsed")
+page = st.sidebar.radio("Navigation", ["Overview", "Forecast Accuracy", "Inventory Health", "Demand Signals", "Iceberg Export (AWS Glue)", "Ask Demand", "AWS Architecture"], label_visibility="collapsed")
 st.sidebar.divider()
 st.sidebar.markdown("### Demand Optimization")
 st.sidebar.caption("Forecast accuracy, inventory risk, and demand signals across 500 SKUs / 15 warehouses")
@@ -158,6 +158,29 @@ elif page == "Demand Signals":
         fig.update_layout(height=500, margin=dict(t=40, b=10, l=180))
         st.plotly_chart(fig, use_container_width=True)
 
+elif page == "Iceberg Export (AWS Glue)":
+    st.title("Iceberg Forecast Export")
+    st.caption("Apache Iceberg on S3 + AWS Glue catalog `mfg_demand_iceberg` -> queryable from Athena & QuickSight")
+    try:
+        s = session.sql("SELECT * FROM MANUFACTURING_DEMAND.LAKE.VW_FORECAST_ICEBERG_STATS").to_pandas().iloc[0]
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Rows Exported", f"{int(s['ROW_COUNT']):,}")
+        c2.metric("Format", "Apache Iceberg")
+        c3.metric("Catalog", "AWS Glue")
+        c4.metric("Distinct Categories", int(s["DISTINCT_CATEGORIES"]))
+        c5.metric("Avg Accuracy %", f"{float(s['AVG_ACCURACY_PCT']):.1f}")
+        st.success(f"{int(s['ROW_COUNT']):,} forecast rows exported as Apache Iceberg under `s3://sg-retail-demos-2026/iceberg/manufacturing-demand/forecast/`. Glue catalog `mfg_demand_iceberg` registers the table; Athena and QuickSight read directly from S3 — no copy, no sync.")
+        sample = session.sql("SELECT * FROM MANUFACTURING_DEMAND.LAKE.FORECAST_ICEBERG SAMPLE (200 ROWS)").to_pandas()
+        st.subheader("Sample (first 200 rows)")
+        st.dataframe(sample, use_container_width=True)
+        st.subheader("Athena query (paste into Athena console)")
+        st.code("""SELECT category, AVG(accuracy_pct) avg_acc, COUNT(*) rows
+FROM mfg_demand_iceberg.forecast_iceberg
+GROUP BY category
+ORDER BY avg_acc;""", language="sql")
+    except Exception as e:
+        st.error(f"Iceberg export error: {e}")
+
 elif page == "Ask Demand":
     st.title("Ask the Data")
     st.caption("Natural language questions powered by Cortex Analyst")
@@ -186,3 +209,35 @@ elif page == "Ask Demand":
                     st.error(parsed)
             except Exception as e:
                 st.error(f"Error: {e}")
+
+elif page == "AWS Architecture":
+    st.title("AWS Architecture - Open Forecast Data Lake")
+    st.caption("Snowflake + Apache Iceberg + AWS Glue + Athena + QuickSight")
+    a, b, c, d = st.columns(4)
+    a.metric("AWS Hero", "Glue + Athena")
+    b.metric("Format", "Apache Iceberg")
+    c.metric("Bucket", "sg-retail-demos-2026")
+    d.metric("Glue Catalog", "mfg_demand_iceberg")
+    st.markdown(
+        """
+**Data flow**
+
+1. **Snowflake** runs the forecast (`SNOWFLAKE.ML.FORECAST` + ML anomaly detection) on `CURATED` Dynamic Tables.
+2. The output lands in `LAKE.FORECAST_ICEBERG` -> Apache Iceberg files on `s3://sg-retail-demos-2026/iceberg/manufacturing-demand/forecast/`.
+3. **AWS Glue catalog** `mfg_demand_iceberg` registers the table. Schema and partitions stay in sync because Iceberg is the source of truth.
+4. **Amazon Athena** can `SELECT * FROM mfg_demand_iceberg.forecast_iceberg` with no copy.
+5. **QuickSight** dashboard `mfg-demand-dashboard` and the **Amazon Q topic** `mfg-demand-q` consume the same governed forecast either via Snowflake or via Athena/Iceberg, depending on the consumer.
+
+**Why this matters**
+
+- One forecast, two consumption surfaces (Snowflake compute + AWS data lake)
+- No nightly copy job, no data drift, no separate SLA
+- Customers keep their AWS-native BI / ML tools while letting Snowflake run the heavy compute
+
+**ARNs**
+
+- `arn:aws:s3:::sg-retail-demos-2026/iceberg/manufacturing-demand/forecast/`
+- `arn:aws:glue:us-west-2:018437500440:catalog/mfg_demand_iceberg`
+- `arn:aws:athena:us-west-2:018437500440:workgroup/mfg-demand-wg`
+        """
+    )
