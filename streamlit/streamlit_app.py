@@ -7,6 +7,18 @@ import _snowflake
 from snowflake.snowpark.context import get_active_session
 
 session = get_active_session()
+
+def coerce_numeric(df, cols=None):
+    """Force Decimal/object cols to float64 so plotly renders them numerically (not as categorical)."""
+    if df is None or len(df) == 0:
+        return df
+    target = cols or [c for c in df.columns if df[c].dtype == "object"]
+    for c in target:
+        try:
+            df[c] = pd.Series([float(x) if x is not None else None for x in df[c]], index=df.index, dtype="float64")
+        except (TypeError, ValueError):
+            pass
+    return df
 st.set_page_config(page_title="Demand Forecast Optimization", layout="wide", page_icon="chart")
 
 RISK_COLORS = {"STOCKOUT": "#E74C3C", "LOW": "#F39C12", "HEALTHY": "#2ECC71", "OVERSTOCK": "#3498DB"}
@@ -19,7 +31,7 @@ st.sidebar.caption("Forecast accuracy, inventory risk, and demand signals across
 
 @st.cache_data(ttl=60)
 def load_forecast():
-    df = session.sql("SELECT * FROM MANUFACTURING_DEMAND.CURATED.FORECAST_ACCURACY ORDER BY WEEK_START").to_pandas()
+    df = coerce_numeric(session.sql("SELECT * FROM MANUFACTURING_DEMAND.CURATED.FORECAST_ACCURACY ORDER BY WEEK_START").to_pandas())
     for c in ["AVG_ACCURACY_PCT", "BIAS", "UNITS_OVER_FORECAST", "UNITS_UNDER_FORECAST", "RECORD_COUNT"]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
     return df
@@ -27,7 +39,7 @@ def load_forecast():
 
 @st.cache_data(ttl=60)
 def load_inventory():
-    df = session.sql("SELECT * FROM MANUFACTURING_DEMAND.CURATED.INVENTORY_HEALTH").to_pandas()
+    df = coerce_numeric(session.sql("SELECT * FROM MANUFACTURING_DEMAND.CURATED.INVENTORY_HEALTH").to_pandas())
     for c in ["AVG_ON_HAND", "DAYS_OF_SUPPLY", "VALUE_AT_RISK"]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
     return df
@@ -35,7 +47,7 @@ def load_inventory():
 
 @st.cache_data(ttl=60)
 def load_signals():
-    df = session.sql("SELECT * FROM MANUFACTURING_DEMAND.CURATED.DEMAND_SIGNALS ORDER BY VELOCITY_RANK").to_pandas()
+    df = coerce_numeric(session.sql("SELECT * FROM MANUFACTURING_DEMAND.CURATED.DEMAND_SIGNALS ORDER BY VELOCITY_RANK").to_pandas())
     for c in ["UNITS_7D", "UNITS_30D", "AVG_DAILY_7D", "AVG_DAILY_30D", "GROWTH_RATE_PCT"]:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
@@ -170,7 +182,7 @@ elif page == "Iceberg Export (AWS Glue)":
         c4.metric("Distinct Categories", int(s["DISTINCT_CATEGORIES"]))
         c5.metric("Avg Accuracy %", f"{float(s['AVG_ACCURACY_PCT']):.1f}")
         st.success(f"{int(s['ROW_COUNT']):,} forecast rows exported as Apache Iceberg under `s3://sg-retail-demos-2026/iceberg/manufacturing-demand/forecast/`. Glue catalog `mfg_demand_iceberg` registers the table; Athena and QuickSight read directly from S3 — no copy, no sync.")
-        sample = session.sql("SELECT * FROM MANUFACTURING_DEMAND.LAKE.FORECAST_ICEBERG SAMPLE (200 ROWS)").to_pandas()
+        sample = coerce_numeric(session.sql("SELECT * FROM MANUFACTURING_DEMAND.LAKE.FORECAST_ICEBERG SAMPLE (200 ROWS)").to_pandas())
         st.subheader("Sample (first 200 rows)")
         st.dataframe(sample, use_container_width=True)
         st.subheader("Athena query (paste into Athena console)")
