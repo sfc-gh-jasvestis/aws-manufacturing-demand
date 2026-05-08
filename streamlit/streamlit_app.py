@@ -23,7 +23,7 @@ st.set_page_config(page_title="Demand Forecast Optimization", layout="wide", pag
 
 RISK_COLORS = {"STOCKOUT": "#E74C3C", "LOW": "#F39C12", "HEALTHY": "#2ECC71", "OVERSTOCK": "#3498DB"}
 
-page = st.sidebar.radio("Navigation", ["Overview", "Forecast Accuracy", "Inventory Health", "Demand Signals", "Iceberg Export (AWS Glue)", "Ask Demand", "AWS Architecture"], label_visibility="collapsed")
+page = st.sidebar.radio("Navigation", ["Overview", "Forecast Accuracy", "Inventory Health", "Demand Signals", "Iceberg Export (AWS Glue)", "Ask Demand"], label_visibility="collapsed")
 st.sidebar.divider()
 st.sidebar.markdown("### Demand Optimization")
 st.sidebar.caption("Forecast accuracy, inventory risk, and demand signals across 500 SKUs / 15 warehouses")
@@ -160,12 +160,12 @@ elif page == "Inventory Health":
     st.subheader("Critical Items (Stockout / Low)")
     crit = inv[inv["RISK_LEVEL"].isin(["STOCKOUT", "LOW"])].sort_values("DAYS_OF_SUPPLY").head(30)
     if not crit.empty:
-        st.dataframe(crit[["PRODUCT_NAME", "CATEGORY", "WAREHOUSE_NAME", "AVG_ON_HAND", "DAYS_OF_SUPPLY", "RISK_LEVEL", "VALUE_AT_RISK"]], use_container_width=True, hide_index=True)
+        st.dataframe(crit[["PRODUCT_NAME", "CATEGORY", "WAREHOUSE_NAME", "AVG_ON_HAND", "DAYS_OF_SUPPLY", "RISK_LEVEL", "VALUE_AT_RISK"]], use_container_width=True)
 
     st.subheader("Overstock (Capital Tied Up)")
     over = inv[inv["RISK_LEVEL"] == "OVERSTOCK"].sort_values("VALUE_AT_RISK", ascending=False).head(15)
     if not over.empty:
-        st.dataframe(over[["PRODUCT_NAME", "CATEGORY", "WAREHOUSE_NAME", "AVG_ON_HAND", "DAYS_OF_SUPPLY", "VALUE_AT_RISK"]], use_container_width=True, hide_index=True)
+        st.dataframe(over[["PRODUCT_NAME", "CATEGORY", "WAREHOUSE_NAME", "AVG_ON_HAND", "DAYS_OF_SUPPLY", "VALUE_AT_RISK"]], use_container_width=True)
 
 elif page == "Demand Signals":
     st.title("Demand Signals")
@@ -249,7 +249,7 @@ elif page == "Ask Demand":
                             with st.expander("SQL"):
                                 st.code(sql, language="sql")
                             try:
-                                st.dataframe(session.sql(sql).to_pandas(), use_container_width=True, hide_index=True)
+                                st.dataframe(session.sql(sql).to_pandas(), use_container_width=True)
                             except Exception:
                                 pass
                 else:
@@ -257,34 +257,3 @@ elif page == "Ask Demand":
             except Exception as e:
                 st.error(f"Error: {e}")
 
-elif page == "AWS Architecture":
-    st.title("AWS Architecture - Open Forecast Data Lake")
-    st.caption("Snowflake + Apache Iceberg + AWS Glue + Athena + QuickSight")
-    a, b, c, d = st.columns(4)
-    a.metric("AWS Hero", "Glue + Athena")
-    b.metric("Format", "Apache Iceberg")
-    c.metric("Bucket", "sg-retail-demos-2026")
-    d.metric("Glue Catalog", "mfg_demand_iceberg")
-    st.markdown(
-        """
-**Data flow**
-
-1. **Snowflake** runs the forecast (`SNOWFLAKE.ML.FORECAST` + ML anomaly detection) on `CURATED` Dynamic Tables.
-2. The output lands in `LAKE.FORECAST_ICEBERG` -> Apache Iceberg files on `s3://sg-retail-demos-2026/iceberg/manufacturing-demand/forecast/`.
-3. **AWS Glue catalog** `mfg_demand_iceberg` registers the table. Schema and partitions stay in sync because Iceberg is the source of truth.
-4. **Amazon Athena** can `SELECT * FROM mfg_demand_iceberg.forecast_iceberg` with no copy.
-5. **QuickSight** dashboard `mfg-demand-dashboard` and the **Amazon Q topic** `mfg-demand-q` consume the same governed forecast either via Snowflake or via Athena/Iceberg, depending on the consumer.
-
-**Why this matters**
-
-- One forecast, two consumption surfaces (Snowflake compute + AWS data lake)
-- No nightly copy job, no data drift, no separate SLA
-- Customers keep their AWS-native BI / ML tools while letting Snowflake run the heavy compute
-
-**ARNs**
-
-- `arn:aws:s3:::sg-retail-demos-2026/iceberg/manufacturing-demand/forecast/`
-- `arn:aws:glue:us-west-2:018437500440:catalog/mfg_demand_iceberg`
-- `arn:aws:athena:us-west-2:018437500440:workgroup/mfg-demand-wg`
-        """
-    )
