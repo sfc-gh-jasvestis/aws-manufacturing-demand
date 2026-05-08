@@ -160,12 +160,12 @@ elif page == "Inventory Health":
     st.subheader("Critical Items (Stockout / Low)")
     crit = inv[inv["RISK_LEVEL"].isin(["STOCKOUT", "LOW"])].sort_values("DAYS_OF_SUPPLY").head(30)
     if not crit.empty:
-        st.dataframe(crit[["PRODUCT_NAME", "CATEGORY", "WAREHOUSE_NAME", "AVG_ON_HAND", "DAYS_OF_SUPPLY", "RISK_LEVEL", "VALUE_AT_RISK"]], use_container_width=True)
+        st.dataframe(crit[["PRODUCT_NAME", "CATEGORY", "WAREHOUSE_NAME", "AVG_ON_HAND", "DAYS_OF_SUPPLY", "RISK_LEVEL", "VALUE_AT_RISK"]].reset_index(drop=True), use_container_width=True)
 
     st.subheader("Overstock (Capital Tied Up)")
     over = inv[inv["RISK_LEVEL"] == "OVERSTOCK"].sort_values("VALUE_AT_RISK", ascending=False).head(15)
     if not over.empty:
-        st.dataframe(over[["PRODUCT_NAME", "CATEGORY", "WAREHOUSE_NAME", "AVG_ON_HAND", "DAYS_OF_SUPPLY", "VALUE_AT_RISK"]], use_container_width=True)
+        st.dataframe(over[["PRODUCT_NAME", "CATEGORY", "WAREHOUSE_NAME", "AVG_ON_HAND", "DAYS_OF_SUPPLY", "VALUE_AT_RISK"]].reset_index(drop=True), use_container_width=True)
 
 elif page == "Demand Signals":
     st.title("Demand Signals")
@@ -219,7 +219,7 @@ elif page == "Iceberg Export (AWS Glue)":
         st.success(f"{int(s['ROW_COUNT']):,} forecast rows exported as Apache Iceberg under `s3://sg-retail-demos-2026/iceberg/manufacturing-demand/forecast/`. Glue catalog `mfg_demand_iceberg` registers the table; Athena and QuickSight read directly from S3 — no copy, no sync.")
         sample = coerce_numeric(session.sql("SELECT * FROM MANUFACTURING_DEMAND.LAKE.FORECAST_ICEBERG SAMPLE (200 ROWS)").to_pandas())
         st.subheader("Sample (first 200 rows)")
-        st.dataframe(sample, use_container_width=True)
+        st.dataframe(sample.reset_index(drop=True), use_container_width=True)
         st.subheader("Athena query (paste into Athena console)")
         st.code("""SELECT category, AVG(accuracy_pct) avg_acc, COUNT(*) rows
 FROM mfg_demand_iceberg.forecast_iceberg
@@ -249,7 +249,7 @@ elif page == "Ask Demand":
                             with st.expander("SQL"):
                                 st.code(sql, language="sql")
                             try:
-                                st.dataframe(session.sql(sql).to_pandas(), use_container_width=True)
+                                st.dataframe(session.sql(sql).to_pandas().reset_index(drop=True), use_container_width=True)
                             except Exception:
                                 pass
                 else:
