@@ -2,35 +2,24 @@
 
 Intelligent demand forecasting and inventory optimization powered by Snowflake Cortex AI — detect forecast degradation before it becomes overstock.
 
-## AWS Hero — Open Forecast Data Lake
+## Architecture
 
-Snowflake + **Apache Iceberg** + **AWS Glue** + **Amazon Athena** + **QuickSight**. Snowflake runs the forecast; the result lands as Iceberg on S3 and registers in the customer's Glue catalog — Athena and QuickSight read it without any copy job.
+An open forecast data lake built on **Snowflake** (Dynamic Tables, ML.FORECAST, ML.ANOMALY_DETECTION, semantic view, Cortex Analyst) and **AWS** (S3, Apache Iceberg, AWS Glue, Athena, QuickSight + Amazon Q). Snowflake runs the forecast; the result lands as Iceberg on S3 and registers in the customer's Glue catalog — Athena and QuickSight read it without any copy job.
 
 ```mermaid
 flowchart LR
-    SF[Snowflake ML.FORECAST] --> ICE[Iceberg on S3]
+    S3[S3 partner POs and demand feeds] --> SF[Snowflake Dynamic Tables]
+    SF --> ML[ML.FORECAST + ML.ANOMALY_DETECTION]
+    ML --> ICE[Iceberg on S3]
     ICE --> GLUE[AWS Glue catalog mfg_demand_iceberg]
     GLUE --> ATH[Amazon Athena]
-    GLUE --> QS[QuickSight]
-    SF --> SS[Streamlit on Snowflake]
+    SF --> SemView[Semantic View]
+    SF --> ST[Streamlit Demand App]
+    SF --> QSDirect[QuickSight Snowflake direct]
+    GLUE --> QSAth[QuickSight on Athena]
     SF --> AQ[Amazon Q topic mfg-demand-q]
 ```
 
-
-## Architecture
-
-```
-┌─────────┐    ┌───────────────────────────────────────────────────────┐    ┌─────────────┐
-│  AWS S3 │───▶│                   SNOWFLAKE                           │───▶│  Streamlit  │
-│  (Raw)  │    │  Stages → Dynamic Tables → ML Models → Cortex Agent  │    │  Dashboard  │
-└─────────┘    └───────────────────────────────────────────────────────┘    └─────────────┘
-                         │                        │
-                         ▼                        ▼
-                  ┌─────────────┐         ┌─────────────┐
-                  │  Semantic   │         │   Cortex    │
-                  │    View     │         │   Search    │
-                  └─────────────┘         └─────────────┘
-```
 
 ## Personas
 
