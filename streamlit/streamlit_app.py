@@ -80,15 +80,20 @@ if page == "Overview":
     cc1, cc2 = st.columns(2)
     with cc1:
         cat = fa.groupby("CATEGORY")["AVG_ACCURACY_PCT"].mean().reset_index().sort_values("AVG_ACCURACY_PCT")
-        fig = px.bar(cat, x="AVG_ACCURACY_PCT", y="CATEGORY", orientation="h", color="AVG_ACCURACY_PCT", color_continuous_scale="RdYlGn", range_color=[40, 100], title="Avg Forecast Accuracy by Category")
+        x_vals = [float(v) for v in cat["AVG_ACCURACY_PCT"].tolist()]
+        y_vals = [str(v) for v in cat["CATEGORY"].tolist()]
+        fig = go.Figure(data=[go.Bar(x=x_vals, y=y_vals, orientation="h", marker=dict(color=x_vals, colorscale="RdYlGn", cmin=40, cmax=100), hovertemplate="<b>%{y}</b><br>Accuracy: %{x:.1f}%<extra></extra>")])
         fig.add_vline(x=85, line_dash="dash", line_color="green", annotation_text="Target 85%")
-        fig.update_layout(height=350, margin=dict(t=40, b=10), coloraxis_showscale=False)
+        fig.update_layout(title="Avg Forecast Accuracy by Category", height=350, margin=dict(t=40, b=10), xaxis_title="Accuracy %", yaxis_title="")
         st.plotly_chart(fig, use_container_width=True)
     with cc2:
         rc = inv["RISK_LEVEL"].value_counts().reset_index()
         rc.columns = ["RISK_LEVEL", "COUNT"]
-        fig = px.pie(rc, names="RISK_LEVEL", values="COUNT", color="RISK_LEVEL", color_discrete_map=RISK_COLORS, title="Inventory Risk Distribution", hole=0.4)
-        fig.update_layout(height=350, margin=dict(t=40, b=10))
+        labels = [str(v) for v in rc["RISK_LEVEL"].tolist()]
+        values = [int(v) for v in rc["COUNT"].tolist()]
+        colors = [RISK_COLORS.get(l, "#888") for l in labels]
+        fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.4, marker=dict(colors=colors), sort=False, textinfo="label+percent")])
+        fig.update_layout(title="Inventory Risk Distribution", height=350, margin=dict(t=40, b=10))
         st.plotly_chart(fig, use_container_width=True)
 
 elif page == "Forecast Accuracy":
@@ -98,21 +103,32 @@ elif page == "Forecast Accuracy":
     if fa.empty:
         st.info("No data."); st.stop()
 
-    fig = px.line(fa, x="WEEK_START", y="AVG_ACCURACY_PCT", color="CATEGORY", title="Forecast Accuracy by Category Over Time", markers=True)
+    fig = go.Figure()
+    for cat_name in sorted(fa["CATEGORY"].dropna().unique()):
+        sub = fa[fa["CATEGORY"] == cat_name].sort_values("WEEK_START")
+        fig.add_trace(go.Scatter(x=[str(v) for v in sub["WEEK_START"].tolist()], y=[float(v) for v in sub["AVG_ACCURACY_PCT"].tolist()], mode="lines+markers", name=str(cat_name)))
     fig.add_hline(y=85, line_dash="dash", line_color="green", annotation_text="Target 85%")
-    fig.update_layout(height=420, margin=dict(t=40, b=10), yaxis=dict(range=[40, 100], title="Accuracy %"))
+    fig.update_layout(title="Forecast Accuracy by Category Over Time", height=420, margin=dict(t=40, b=10), yaxis=dict(range=[40, 100], title="Accuracy %"), xaxis_title="Week")
     st.plotly_chart(fig, use_container_width=True)
 
     cc1, cc2 = st.columns(2)
     with cc1:
         bias = fa.groupby("CATEGORY")["BIAS"].mean().reset_index().sort_values("BIAS")
-        fig = px.bar(bias, x="BIAS", y="CATEGORY", orientation="h", color="BIAS", color_continuous_scale="RdBu", color_continuous_midpoint=0, title="Forecast Bias by Category (forecast - actual)")
-        fig.update_layout(height=350, margin=dict(t=40, b=10), coloraxis_showscale=False)
+        x_vals = [float(v) for v in bias["BIAS"].tolist()]
+        y_vals = [str(v) for v in bias["CATEGORY"].tolist()]
+        fig = go.Figure(data=[go.Bar(x=x_vals, y=y_vals, orientation="h", marker=dict(color=x_vals, colorscale="RdBu", cmid=0), hovertemplate="<b>%{y}</b><br>Bias: %{x:.2f}<extra></extra>")])
+        fig.update_layout(title="Forecast Bias by Category (forecast - actual)", height=350, margin=dict(t=40, b=10), xaxis_title="Bias", yaxis_title="")
         st.plotly_chart(fig, use_container_width=True)
     with cc2:
-        ou = fa.groupby("CATEGORY")[["UNITS_OVER_FORECAST", "UNITS_UNDER_FORECAST"]].sum().reset_index().melt(id_vars="CATEGORY", var_name="DIRECTION", value_name="UNITS")
-        fig = px.bar(ou, x="CATEGORY", y="UNITS", color="DIRECTION", barmode="group", title="Over vs Under-Forecast Units", color_discrete_map={"UNITS_OVER_FORECAST": "#3498DB", "UNITS_UNDER_FORECAST": "#E74C3C"})
-        fig.update_layout(height=350, margin=dict(t=40, b=10))
+        ou = fa.groupby("CATEGORY")[["UNITS_OVER_FORECAST", "UNITS_UNDER_FORECAST"]].sum().reset_index()
+        cats = [str(v) for v in ou["CATEGORY"].tolist()]
+        over_vals = [float(v) for v in ou["UNITS_OVER_FORECAST"].tolist()]
+        under_vals = [float(v) for v in ou["UNITS_UNDER_FORECAST"].tolist()]
+        fig = go.Figure(data=[
+            go.Bar(name="Over Forecast", x=cats, y=over_vals, marker_color="#3498DB"),
+            go.Bar(name="Under Forecast", x=cats, y=under_vals, marker_color="#E74C3C"),
+        ])
+        fig.update_layout(title="Over vs Under-Forecast Units", barmode="group", height=350, margin=dict(t=40, b=10), xaxis_title="Category", yaxis_title="Units")
         st.plotly_chart(fig, use_container_width=True)
 
 elif page == "Inventory Health":
@@ -126,14 +142,19 @@ elif page == "Inventory Health":
     with cc1:
         rc = inv["RISK_LEVEL"].value_counts().reset_index()
         rc.columns = ["RISK_LEVEL", "COUNT"]
-        fig = px.pie(rc, names="RISK_LEVEL", values="COUNT", color="RISK_LEVEL", color_discrete_map=RISK_COLORS, title="Inventory Risk Distribution", hole=0.4)
-        fig.update_layout(height=380, margin=dict(t=40, b=10))
+        labels = [str(v) for v in rc["RISK_LEVEL"].tolist()]
+        values = [int(v) for v in rc["COUNT"].tolist()]
+        colors = [RISK_COLORS.get(l, "#888") for l in labels]
+        fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.4, marker=dict(colors=colors), sort=False, textinfo="label+percent")])
+        fig.update_layout(title="Inventory Risk Distribution", height=380, margin=dict(t=40, b=10))
         st.plotly_chart(fig, use_container_width=True)
     with cc2:
         cv = inv.groupby("CATEGORY")["VALUE_AT_RISK"].sum().reset_index().sort_values("VALUE_AT_RISK", ascending=True)
         cv["VAR_M"] = cv["VALUE_AT_RISK"] / 1e6
-        fig = px.bar(cv, x="VAR_M", y="CATEGORY", orientation="h", color="VAR_M", color_continuous_scale="OrRd", title="Value at Risk by Category ($M)", text_auto=".1f")
-        fig.update_layout(height=380, margin=dict(t=40, b=10), coloraxis_showscale=False, xaxis_title="$M")
+        x_vals = [float(v) for v in cv["VAR_M"].tolist()]
+        y_vals = [str(v) for v in cv["CATEGORY"].tolist()]
+        fig = go.Figure(data=[go.Bar(x=x_vals, y=y_vals, orientation="h", marker=dict(color=x_vals, colorscale="OrRd"), text=[f"{v:.1f}" for v in x_vals], textposition="auto", hovertemplate="<b>%{y}</b><br>$%{x:.1f}M<extra></extra>")])
+        fig.update_layout(title="Value at Risk by Category ($M)", height=380, margin=dict(t=40, b=10), xaxis_title="$M", yaxis_title="")
         st.plotly_chart(fig, use_container_width=True)
 
     st.subheader("Critical Items (Stockout / Low)")
@@ -160,14 +181,28 @@ elif page == "Demand Signals":
 
     cc1, cc2 = st.columns(2)
     with cc1:
-        top = sig.nlargest(15, "GROWTH_RATE_PCT")
-        fig = px.bar(top.sort_values("GROWTH_RATE_PCT"), x="GROWTH_RATE_PCT", y="PRODUCT_NAME", orientation="h", color="CATEGORY", title="Top 15 Growing SKUs (% 7d vs 30d)")
-        fig.update_layout(height=500, margin=dict(t=40, b=10, l=180))
+        top = sig.nlargest(15, "GROWTH_RATE_PCT").sort_values("GROWTH_RATE_PCT")
+        cats = [str(v) for v in top["CATEGORY"].tolist()]
+        unique_cats = list(dict.fromkeys(cats))
+        palette = ["#3498DB", "#E74C3C", "#2ECC71", "#F39C12", "#9B59B6", "#1ABC9C", "#E67E22", "#34495E"]
+        cmap = {c: palette[i % len(palette)] for i, c in enumerate(unique_cats)}
+        bar_colors = [cmap[c] for c in cats]
+        x_vals = [float(v) for v in top["GROWTH_RATE_PCT"].tolist()]
+        y_vals = [str(v) for v in top["PRODUCT_NAME"].tolist()]
+        fig = go.Figure(data=[go.Bar(x=x_vals, y=y_vals, orientation="h", marker_color=bar_colors, customdata=cats, hovertemplate="<b>%{y}</b><br>Growth: %{x:.1f}%<br>Category: %{customdata}<extra></extra>")])
+        fig.update_layout(title="Top 15 Growing SKUs (% 7d vs 30d)", height=500, margin=dict(t=40, b=10, l=180), xaxis_title="Growth %", yaxis_title="")
         st.plotly_chart(fig, use_container_width=True)
     with cc2:
-        vel = sig.nsmallest(15, "VELOCITY_RANK") if "VELOCITY_RANK" in sig.columns else sig.head(15)
-        fig = px.bar(vel.sort_values("AVG_DAILY_7D"), x="AVG_DAILY_7D", y="PRODUCT_NAME", orientation="h", color="CATEGORY", title="Top 15 by 7d Daily Velocity")
-        fig.update_layout(height=500, margin=dict(t=40, b=10, l=180))
+        vel = (sig.nsmallest(15, "VELOCITY_RANK") if "VELOCITY_RANK" in sig.columns else sig.head(15)).sort_values("AVG_DAILY_7D")
+        cats = [str(v) for v in vel["CATEGORY"].tolist()]
+        unique_cats = list(dict.fromkeys(cats))
+        palette = ["#3498DB", "#E74C3C", "#2ECC71", "#F39C12", "#9B59B6", "#1ABC9C", "#E67E22", "#34495E"]
+        cmap = {c: palette[i % len(palette)] for i, c in enumerate(unique_cats)}
+        bar_colors = [cmap[c] for c in cats]
+        x_vals = [float(v) for v in vel["AVG_DAILY_7D"].tolist()]
+        y_vals = [str(v) for v in vel["PRODUCT_NAME"].tolist()]
+        fig = go.Figure(data=[go.Bar(x=x_vals, y=y_vals, orientation="h", marker_color=bar_colors, customdata=cats, hovertemplate="<b>%{y}</b><br>7d daily: %{x:.1f}<br>Category: %{customdata}<extra></extra>")])
+        fig.update_layout(title="Top 15 by 7d Daily Velocity", height=500, margin=dict(t=40, b=10, l=180), xaxis_title="Avg Daily (7d)", yaxis_title="")
         st.plotly_chart(fig, use_container_width=True)
 
 elif page == "Iceberg Export (AWS Glue)":
