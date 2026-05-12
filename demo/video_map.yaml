@@ -1,0 +1,45 @@
+source_video: ~/movies/AWS MFG Demand Forecast.mp4
+source_type: generated
+resolution: [1920, 1080]
+fps: 30
+
+title_card:
+  title: "Demand Forecast Optimization"
+  subtitle: "AWS + Snowflake"
+  duration: 3.0
+
+scenes:
+  - id: "scene_01_the_problem_architecture"
+    label: "Problem & Architecture"
+    start: 3.0
+    end: 39.2
+
+  - id: "scene_02_page_1_forecast_accuracy_the_signal"
+    label: "Forecast Accuracy"
+    start: 39.2
+    end: 56.1
+
+  - id: "scene_03_page_2_inventory_health_the_impact"
+    label: "Inventory Health"
+    start: 56.1
+    end: 78.3
+
+  - id: "scene_04_page_3_iceberg_export_the_aws_payoff"
+    label: "Iceberg Export"
+    start: 78.3
+    end: 101.0
+
+  - id: "scene_05_page_4_ask_demand"
+    label: "Ask Demand"
+    start: 101.0
+    end: 119.7
+
+  - id: "scene_06_quicksight_amazon_q_the_executive_lens"
+    label: "QuickSight"
+    start: 119.7
+    end: 143.2
+
+  - id: "scene_07_close"
+    label: "Close"
+    start: 143.2
+    end: 179.8

@@ -1,17 +1,8 @@
 # Demo Script: Demand Forecast Optimization
-## ~3-Minute Recorded Walkthrough
+## ~4-Minute Recorded Walkthrough (4:00 target)
 **Format**: Screen recording with voiceover
 **Target**: Customer meeting / booth loop / social share
-**Pre-requisites**: Data loaded, Streamlit deployed, QuickSight dashboard published, Iceberg table populated, Glue catalog `mfg_demand_iceberg` registered
-
----
-
-## Two Personas
-
-| Persona | Role | Tool | What they care about |
-|---|---|---|---|
-| **Demand Planner** | Day-to-day SKU control | Streamlit in Snowflake | Per-SKU accuracy, stockout/overstock list, demand spikes, value-at-risk |
-| **Operations COO** | Executive / financial owner | Amazon Athena + QuickSight + Amazon Q | Same forecast in AWS-native tools, no copy job, no separate SLA |
+**Narrative**: "Snowflake does everything natively — forecast, detect, classify, alert, orchestrate — then the result is open, living in your AWS data lake as Iceberg"
 
 ---
 
@@ -19,104 +10,107 @@
 
 | Layer | Component | Detail |
 |---|---|---|
-| **Ingest (AWS)** | Amazon S3 | `s3://sg-manufacturing-demos-2026/demand/` — partner POS, supplier POs, demand feeds |
-| **RAW** | 4 tables | PRODUCTS (500), WAREHOUSES (15), SALES_HISTORY (50K), PURCHASE_ORDERS (10K) |
-| **CURATED** | 3 Dynamic Tables | FORECAST_ACCURACY, INVENTORY_HEALTH (2K), DEMAND_SIGNALS |
-| **AI** | Semantic View + Agent | DEMAND_PLANNING_SEMANTIC_VIEW |
-| **ML** | FORECAST + ANOMALY | 14-period demand forecast across 500 SKUs, anomaly flags on stockout/overstock |
-| **AWS Hero** | Apache Iceberg + AWS Glue + Athena | `LAKE.FORECAST_ICEBERG` (2,000 rows) on S3, registered in Glue catalog `mfg_demand_iceberg`, queryable from Athena |
-| **Consumption** | Streamlit | 7-page Demand Optimization App |
-| | QuickSight | `mfg-demand-dashboard` (Snowflake direct + Athena variant) + Amazon Q topic `mfg-demand-q` |
+| **Ingest (AWS)** | Amazon S3 + Snowpipe | Real-time partner demand via auto-ingest |
+| **RAW** | 7 tables | PRODUCTS (500), WAREHOUSES (10), DEMAND_HISTORY (100K), INVENTORY (50K), POs (10K), PLANNING_DOCS (80), DEMAND_REALTIME (500) |
+| **CURATED** | 3 Dynamic Tables | FORECAST_ACCURACY, INVENTORY_HEALTH, DEMAND_SIGNALS |
+| **ML** | ML.FORECAST + ML.ANOMALY_DETECTION | 14-day forecast + anomaly detection (5/8 days anomalous for Electronics) |
+| **AI** | Cortex Classify (Claude Sonnet) + Semantic View + Agent | 80 docs classified (17 CRITICAL), NL analytics |
+| **Orchestration** | Task DAG (3 tasks) | Retrain → rescan anomalies → refresh Iceberg |
+| **Alert** | Snowflake Alert → AWS SNS | Fires when Electronics accuracy < 75% |
+| **AWS Hero** | Iceberg + Glue + Athena | 2,000 rows queryable from Athena — no copy, no sync |
+| **Consumption** | Streamlit (9 pages) + QuickSight + Amazon Q | Full analytics surface |
 
 ---
 
 ## Pre-Recording Checklist
 
-- [ ] `SELECT * FROM MANUFACTURING_DEMAND.LAKE.VW_FORECAST_ICEBERG_STATS` returns 2,000 rows, 5 categories, ~85% avg accuracy
-- [ ] Electronics avg accuracy ~56% in `FORECAST_ACCURACY`
-- [ ] 156 STOCKOUT rows in `INVENTORY_HEALTH`
-- [ ] Pharma value-at-risk = $46M in `INVENTORY_HEALTH`
-- [ ] Open Streamlit: https://app.snowflake.com/SFSEAPAC/sg_demo43/#/streamlit-apps/MANUFACTURING_DEMAND.APP.DEMAND_OPTIMIZATION_APP
-- [ ] Open QuickSight: https://us-west-2.quicksight.aws.amazon.com/sn/dashboards/mfg-demand-dashboard
-- [ ] Pre-open AWS tabs:
-  - S3: `https://s3.console.aws.amazon.com/s3/buckets/sg-retail-demos-2026?prefix=iceberg/manufacturing-demand/forecast/`
-  - Glue: `https://us-west-2.console.aws.amazon.com/glue/home?region=us-west-2#/v2/data-catalog/tables` (filter `mfg_demand_iceberg`)
-  - Athena: `https://us-west-2.console.aws.amazon.com/athena/home?region=us-west-2` — paste-ready: `SELECT category, AVG(accuracy_pct) avg_acc, COUNT(*) rows FROM mfg_demand_iceberg.forecast_iceberg GROUP BY category ORDER BY avg_acc;`
-- [ ] Audio: quiet room, external mic
-- [ ] Resolution: 1920x1080
+- [ ] `SELECT CATEGORY, ROUND(AVG(AVG_ACCURACY_PCT),1) FROM MANUFACTURING_DEMAND.CURATED.FORECAST_ACCURACY GROUP BY CATEGORY ORDER BY 2` → Electronics 71.6%, Pharma 95.5%
+- [ ] `SELECT RISK_LEVEL, COUNT(*) FROM MANUFACTURING_DEMAND.CURATED.INVENTORY_HEALTH GROUP BY RISK_LEVEL` → 324 STOCKOUT, 530 LOW, 946 HEALTHY, 199 OVERSTOCK
+- [ ] `SELECT SERIES, SUM(CASE WHEN IS_ANOMALY THEN 1 ELSE 0 END) FROM MANUFACTURING_DEMAND.ML.DEMAND_ANOMALY_RESULTS GROUP BY SERIES` → Electronics 5, Pharma 2, FMCG 1, Industrial 1, Automotive 0
+- [ ] `SELECT RISK_LEVEL, COUNT(*) FROM MANUFACTURING_DEMAND.AI.DOC_RISK_CLASSIFICATION GROUP BY RISK_LEVEL` → 17 CRITICAL, 20 HIGH_RISK, 29 MEDIUM_RISK, 14 LOW_RISK
+- [ ] Snowpipe: `SELECT SYSTEM$PIPE_STATUS('MANUFACTURING_DEMAND.RAW.DEMAND_REALTIME_PIPE')` → RUNNING
+- [ ] Open Streamlit, QuickSight, Athena tabs
 
 ---
 
 ## Script
 
-### [0:00–0:20] THE PROBLEM & ARCHITECTURE
+### [0:00–0:25] THE PROBLEM & ARCHITECTURE
 
 **Show**: Streamlit Overview page
 
-> "Electronics forecast accuracy at 56% — your target is 85%. 156 SKUs at stockout risk. Eighty-five million dollars of inventory tied up. Most demand-planning tools give you the dashboard. None of them give you the *forecast itself* in your AWS data lake without a nightly copy job. That's what we're going to fix in three minutes. Partner sales feeds and supplier POs land in **Amazon S3**. Snowflake builds curated demand tables with **Dynamic Tables**, runs **ML.FORECAST** natively — no Python, no infra — and writes the result back to your data lake as **Apache Iceberg**, registered in **AWS Glue**, queryable from **Athena**. One forecast, two consumption surfaces, zero copy."
+> "One hundred and nineteen million dollars of exposed inventory. That's what's on screen right now. Electronics forecast accuracy sitting at seventy-two percent — thirteen points below target. Five of the last eight days flagged anomalous by Snowflake's ML.ANOMALY_DETECTION. Three hundred and twenty-four SKUs at stockout risk. Most demand-planning tools give you a dashboard. None of them give you the *forecast, anomaly detection, classification, alerting, and orchestration* built-in — with the result landing as Apache Iceberg in your AWS data lake. That's what we fix in four minutes."
 
-### [0:20–0:45] PAGE 1: OVERVIEW + FORECAST ACCURACY
+### [0:25–0:50] REAL-TIME INGEST — the data flow
 
-**Show**: Overview KPI strip + Forecast Accuracy weekly trend by category
+**Show**: Real-Time Ingest page
+
+**Tech**: Amazon S3 → SQS → Snowpipe auto-ingest
+
+> "Partner demand signals — POS feeds, EDI, e-commerce — land in Amazon S3. Snowpipe picks them up within seconds. Five hundred rows across five channels. No Lambda function, no Kinesis stream — just a PIPE object with AUTO_INGEST equals true. The data is in Snowflake before the partner's API call returns."
+
+### [0:50–1:15] FORECAST ACCURACY — the signal
+
+**Show**: Forecast Accuracy page — weekly trend by category
 
 **Tech**: Dynamic Tables + ML.FORECAST
 
-> "Five categories, ten weeks. Apparel, Pharma, Food are tracking the 85% line. Electronics drops to 56% in week 8 — that's a forecast model breakdown, not a stocking error. The whole accuracy table refreshes every five minutes through one **Dynamic Table** SQL statement."
+> "Five categories, fourteen forecast periods. Pharma tracks at ninety-six percent — nearly perfect. Electronics at seventy-two. That twenty-four-point spread isn't noise — it's a systematic forecast failure. The whole accuracy table refreshes every five minutes through Dynamic Tables."
 
-### [0:45–1:10] PAGE 2: INVENTORY HEALTH
+### [1:15–1:45] DEMAND ANOMALIES — the validation
 
-**Show**: Risk pie + value-at-risk bar by category
+**Show**: Demand Anomalies page — Electronics selected
 
-**Tech**: ML.ANOMALY_DETECTION on `INVENTORY_HEALTH`
+**Tech**: ML.ANOMALY_DETECTION
 
-> "Four risk levels: STOCKOUT, LOW, HEALTHY, OVERSTOCK. 156 SKUs in stockout — that's the lost-revenue story. Pharma value-at-risk is $46M — that's the working-capital story. Same Dynamic Table; two different conversations with two different audiences."
+> "Here's what no other platform does natively. ML.ANOMALY_DETECTION — one SQL statement — trains on eighty-two days of history and tests the last eight. The gray band is the ninety-five percent prediction interval. Red dots are anomalies — actual demand falling outside what the model expects. Electronics: five out of eight days anomalous. The forecast model isn't just inaccurate — it's *structurally broken* for this category. Automotive: zero anomalies. The ML validates what the accuracy metric hints at."
 
-### [1:10–1:50] PAGE 3: ICEBERG EXPORT — the AWS payoff
+### [1:45–2:10] PLANNING INTELLIGENCE — the AI
 
-**Show**: Click `Iceberg Export (AWS Glue)` page
+**Show**: Planning Intelligence page — KPI cards, red alert banner, CRITICAL filter active
 
-**Tech**: Apache Iceberg on S3 + AWS Glue catalog
+**Tech**: Cortex COMPLETE (Claude Sonnet) + Cortex SUMMARIZE
 
-> "Here's the part that's *different* from every other demand demo you've seen. Two thousand forecast rows — written by Snowflake — landing as **Apache Iceberg** files on `s3://sg-retail-demos-2026/iceberg/manufacturing-demand/forecast/`. Schema, partitions, statistics — all native Iceberg metadata. **AWS Glue catalog** `mfg_demand_iceberg` registers the table. No copy job, no nightly sync, no ETL pipeline drift. The forecast is *born in the lake*."
+> "The forecast says Electronics is broken. The anomaly model confirms it. But what do the planning documents say? Eighty documents — strategy memos, vendor guides, promotion calendars — classified by Claude Sonnet in a single SQL statement. Seventeen flagged CRITICAL. Every single one is a Demand Strategy document — the same category driving the Electronics forecast failure. Read the summaries: 'electronics demand accuracy below target at fifty-eight percent,' 'demand sensing pilot shows twenty-one-point improvement,' 'accelerate ML model deployment.' The AI didn't just classify the documents — it surfaced the root cause. Filter to HIGH RISK — eleven Category Plans, five more Demand Strategy docs. No external API, no vector database — classification, summarization, and risk triage, all native SQL."
 
-**Action**: Switch to **AWS S3 console** → show the Iceberg files (data + metadata folders).
+### [2:10–2:55] ICEBERG EXPORT — the AWS payoff
 
-> "There's the data files. There's the metadata. That's a real Iceberg snapshot — not a CSV, not a Parquet dump."
+**Show**: Iceberg Export page — KPI cards, S3 metadata path, sample rows, then flip to Athena tab
 
-**Action**: Switch to **AWS Glue console** → filter `mfg_demand_iceberg` → click `forecast_iceberg`.
+**Tech**: Apache Iceberg + S3 External Volume + AWS Glue + Athena
 
-> "Glue picks up the schema instantly — eight columns, partitioned by category."
+> "We've built the forecast, detected anomalies, classified the documents — but demand planning doesn't stop at Snowflake. The supply chain team runs Spark jobs. Finance queries Athena. Contract manufacturers need raw Parquet files on S3. This page is the handoff."
 
-**Action**: Switch to **AWS Athena** → run the pre-loaded query.
+> *(gesture at KPI cards)* "Two thousand forecast rows, five categories, average accuracy eighty-five percent — written by Snowflake as open Apache Iceberg v2 on S3. No export job. No nightly CSV. No sync pipeline. Snowflake manages the table; the data lives as Parquet on S3 with Iceberg metadata."
 
-> "And from Athena: same 2,000 rows, same accuracy by category. **Snowflake writes; AWS reads** — one open table format, zero copy, no SLA drift."
+> *(point at S3 metadata path)* "That S3 path is real — it's the Iceberg metadata JSON that any engine can discover. And this isn't a one-time snapshot. The Task DAG we built earlier refreshes this Iceberg table on every retrain cycle. New forecast, new Parquet files, same table — automatically."
 
-### [1:50–2:15] PAGE 4: ASK DEMAND
+> *(flip to Athena tab)* "Now watch. Same query, different engine. Athena reads the Glue catalog, points at the same S3 path. Electronics at seventy-two percent — same number we saw in the Forecast Accuracy page. Industrial seventy-nine. Automotive eighty-five. FMCG ninety-three. Pharma ninety-five. Five categories, same answers, zero copies. The finance team doesn't need Snowflake access. The supply chain Spark job doesn't need an API key. The data is just *there* — open, governed, and current. That's interoperability — not a slide, a live table."
 
-**Show**: Type "How many SKUs are at stockout risk?" — confirm answer = 156
+### [2:55–3:30] ASK DEMAND + QUICKSIGHT — the consumption layer
 
-**Tech**: Cortex Analyst + Semantic View
+**Show**: Ask Demand page (type question live) → flip to QuickSight tab (Amazon Q)
 
-> "Natural language. **Cortex Analyst** over `DEMAND_PLANNING_SEMANTIC_VIEW` answers in plain English — 156 SKUs at stockout risk, broken down by category. The planner doesn't need SQL. The COO doesn't need a dashboard request ticket."
+**Tech**: Cortex Analyst + Semantic View + QuickSight + Amazon Q
 
-### [2:15–2:45] QUICKSIGHT + AMAZON Q — the executive lens
+> *(type the question live)* "So we've built the pipeline, surfaced the anomalies, classified the documents, and exported to Iceberg. Now — who consumes this? The demand planner. And they don't write SQL."
 
-**Show**: Switch to QuickSight dashboard `mfg-demand-dashboard`
+> "Plain English: 'Which category has the lowest forecast accuracy?' Cortex Analyst interprets the question, writes the SQL, returns the answer — Electronics, seventy-two percent. Same number we saw in the Forecast Accuracy page. Same number Athena returned from Iceberg on S3. Three different engines, one truth."
 
-**Tech**: QuickSight on Athena/Iceberg + Amazon Q topic
+> *(flip to QuickSight tab)* "Now the same question in Amazon Q on QuickSight. Q takes a different angle — it answers with Value at Risk by category. Pharma shows seventy-seven million dollars exposed, driven by stockout risk. Electronics nine point eight million. Different lens, same underlying data. The planner asks about accuracy; the CFO asks about dollars. Both get governed answers from the same pipeline."
 
-> "Two surfaces, one forecast. The Snowflake-direct view in QuickSight gives the COO live KPIs — accuracy, stockout, overstock, value-at-risk. The Athena variant queries the *Iceberg* version of the same data — same numbers, AWS-native consumption. **Amazon Q topic** `mfg-demand-q`: 'Which category has the lowest forecast accuracy?' — Electronics, 56%. From any phone, no SQL."
+> "That's the point. It's not about picking one tool. The demand planner lives in Streamlit. The finance director lives in QuickSight. The supply chain engineer lives in Athena. They all read from the same forecast — because the data is open and the answers are consistent."
 
-### [2:45–3:10] CLOSE
+### [3:30–3:55] CLOSE
 
-> "Recap. Sales and supplier feeds land in **Amazon S3**. Snowflake builds the curated demand model with **Dynamic Tables**, runs **ML.FORECAST** for 500 SKUs across 14 periods — no Python, no GPU pool — and writes the result back to your lake as **Apache Iceberg**, registered in **AWS Glue**, queryable from **Athena**. **QuickSight** consumes both surfaces; **Amazon Q** lets the COO ask plain-English questions. Same data, two consumption surfaces, zero copy. That's how you stop the 'Snowflake versus the data lake' debate — and start an *open forecast pipeline* on Snowflake and AWS."
+> "Every capability you just saw — forecasting, anomaly detection, document intelligence, open lake export — that's five separate vendor contracts at most organizations. Here, it's one platform, native SQL, and the result is open Iceberg that every team can read. That's Snowflake and AWS — not choosing between them, building with both."
 
 ---
 
-## Key Demo Differentiators (vs other AWS demos)
+## Key Demo Differentiators (vs other MFG demos)
 
-1. **Bidirectional data flow** — most demos pull *into* Snowflake; this one writes Iceberg *back out* to AWS Glue.
-2. **No copy job** — Athena queries the same physical files Snowflake wrote. One source of truth.
-3. **Dual QuickSight datasets** — one Snowflake-direct, one Athena/Iceberg, prove you can pick the consumption pattern per dashboard.
-4. **Cortex ML.FORECAST** — 7,000 predictions, no Python, no SageMaker job to babysit.
-5. **Q topic answers** to try: "Which category has the lowest accuracy?" / "What's the value-at-risk by region?" / "How many SKUs are overstocked?"
+1. **ML.ANOMALY_DETECTION on demand data** — no other MFG demo uses this for demand signals
+2. **Cortex AI classification** (COMPLETE + SUMMARIZE) — only demo with document risk triage
+3. **Snowflake Task DAG** — only demo showing native orchestration (no Airflow)
+4. **7 Snowflake features + 6 AWS services** — most balanced demo in the portfolio
+6. **$119M value-at-risk** — the headline is real, auditable, and drives urgency

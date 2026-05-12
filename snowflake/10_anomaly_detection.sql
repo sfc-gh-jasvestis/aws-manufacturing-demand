@@ -1,0 +1,50 @@
+-- ============================================================================
+-- 10_anomaly_detection.sql
+-- Snowflake hero: ML.ANOMALY_DETECTION on demand signals
+-- ----------------------------------------------------------------------------
+-- Trains an anomaly detection model on daily demand by category.
+-- Electronics shows 5/8 recent days anomalous (demand crashing below forecast)
+-- proving the forecast model is broken for that category.
+-- ============================================================================
+USE SCHEMA MANUFACTURING_DEMAND.ML;
+
+CREATE OR REPLACE VIEW ANOMALY_TRAINING_DATA AS
+SELECT
+    p.CATEGORY AS SERIES,
+    d.DEMAND_DATE AS TS,
+    SUM(d.UNITS_SOLD) AS Y
+FROM MANUFACTURING_DEMAND.RAW.DEMAND_HISTORY d
+JOIN MANUFACTURING_DEMAND.RAW.PRODUCTS p ON d.PRODUCT_ID = p.PRODUCT_ID
+WHERE d.DEMAND_DATE < DATEADD('day', -7, (SELECT MAX(DEMAND_DATE) FROM MANUFACTURING_DEMAND.RAW.DEMAND_HISTORY))
+GROUP BY p.CATEGORY, d.DEMAND_DATE
+ORDER BY SERIES, TS;
+
+CREATE OR REPLACE VIEW ANOMALY_TEST_DATA AS
+SELECT
+    p.CATEGORY AS SERIES,
+    d.DEMAND_DATE AS TS,
+    SUM(d.UNITS_SOLD) AS Y
+FROM MANUFACTURING_DEMAND.RAW.DEMAND_HISTORY d
+JOIN MANUFACTURING_DEMAND.RAW.PRODUCTS p ON d.PRODUCT_ID = p.PRODUCT_ID
+WHERE d.DEMAND_DATE >= DATEADD('day', -7, (SELECT MAX(DEMAND_DATE) FROM MANUFACTURING_DEMAND.RAW.DEMAND_HISTORY))
+GROUP BY p.CATEGORY, d.DEMAND_DATE
+ORDER BY SERIES, TS;
+
+CREATE OR REPLACE SNOWFLAKE.ML.ANOMALY_DETECTION DEMAND_ANOMALY_MODEL(
+    INPUT_DATA => TABLE(ANOMALY_TRAINING_DATA),
+    SERIES_COLNAME => 'SERIES',
+    TIMESTAMP_COLNAME => 'TS',
+    TARGET_COLNAME => 'Y',
+    LABEL_COLNAME => ''
+);
+
+CREATE OR REPLACE TABLE DEMAND_ANOMALY_RESULTS AS
+SELECT * FROM TABLE(
+    DEMAND_ANOMALY_MODEL!DETECT_ANOMALIES(
+        INPUT_DATA => TABLE(ANOMALY_TEST_DATA),
+        SERIES_COLNAME => 'SERIES',
+        TIMESTAMP_COLNAME => 'TS',
+        TARGET_COLNAME => 'Y',
+        CONFIG_OBJECT => {'prediction_interval': 0.95}
+    )
+);

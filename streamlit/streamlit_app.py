@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import json
-import plotly.express as px
 import plotly.graph_objects as go
 import _snowflake
 from snowflake.snowpark.context import get_active_session
@@ -9,7 +8,6 @@ from snowflake.snowpark.context import get_active_session
 session = get_active_session()
 
 def coerce_numeric(df, cols=None):
-    """Force Decimal/object cols to float64 so plotly renders them numerically (not as categorical)."""
     if df is None or len(df) == 0:
         return df
     target = cols or [c for c in df.columns if df[c].dtype == "object"]
@@ -19,14 +17,26 @@ def coerce_numeric(df, cols=None):
         except (TypeError, ValueError):
             pass
     return df
+
 st.set_page_config(page_title="Demand Forecast Optimization", layout="wide", page_icon="chart")
 
 RISK_COLORS = {"STOCKOUT": "#E74C3C", "LOW": "#F39C12", "HEALTHY": "#2ECC71", "OVERSTOCK": "#3498DB"}
+ANOMALY_COLORS = {True: "#E74C3C", False: "#2ECC71"}
 
-page = st.sidebar.radio("Navigation", ["Overview", "Forecast Accuracy", "Inventory Health", "Demand Signals", "Iceberg Export (AWS Glue)", "Ask Demand"], label_visibility="collapsed")
+page = st.sidebar.radio("Navigation", [
+    "Overview",
+    "Real-Time Ingest",
+    "Forecast Accuracy",
+    "Inventory Health",
+    "Demand Anomalies",
+    "Demand Signals",
+    "Planning Intelligence",
+    "Iceberg Export (AWS)",
+    "Ask Demand"
+], label_visibility="collapsed")
 st.sidebar.divider()
 st.sidebar.markdown("### Demand Optimization")
-st.sidebar.caption("Forecast accuracy, inventory risk, and demand signals across 500 SKUs / 15 warehouses")
+st.sidebar.caption("7 Snowflake features + 6 AWS services | 500 SKUs / 10 warehouses")
 
 
 @st.cache_data(ttl=60)
@@ -36,14 +46,12 @@ def load_forecast():
         df[c] = pd.to_numeric(df[c], errors="coerce")
     return df
 
-
 @st.cache_data(ttl=60)
 def load_inventory():
     df = coerce_numeric(session.sql("SELECT * FROM MANUFACTURING_DEMAND.CURATED.INVENTORY_HEALTH").to_pandas())
     for c in ["AVG_ON_HAND", "DAYS_OF_SUPPLY", "VALUE_AT_RISK"]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
     return df
-
 
 @st.cache_data(ttl=60)
 def load_signals():
@@ -53,12 +61,25 @@ def load_signals():
             df[c] = pd.to_numeric(df[c], errors="coerce")
     return df
 
+@st.cache_data(ttl=60)
+def load_anomalies():
+    df = coerce_numeric(session.sql("SELECT * FROM MANUFACTURING_DEMAND.ML.DEMAND_ANOMALY_RESULTS ORDER BY SERIES, TS").to_pandas())
+    for c in ["Y", "FORECAST", "LOWER_BOUND", "UPPER_BOUND", "PERCENTILE", "DISTANCE"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+    if "SERIES" in df.columns:
+        df["SERIES"] = df["SERIES"].astype(str).str.strip('"')
+    if "IS_ANOMALY" in df.columns:
+        df["IS_ANOMALY"] = df["IS_ANOMALY"].astype(str).str.lower().isin(["true", "1"])
+    return df
+
 
 if page == "Overview":
     st.title("Demand Forecast Optimization")
-    st.caption("Forecast accuracy, inventory health, and demand signal analysis")
+    st.caption("AI-powered demand consensus: forecast, detect, classify, alert, orchestrate — then export as open Iceberg")
     fa = load_forecast()
     inv = load_inventory()
+    anom = load_anomalies()
 
     elec_acc = fa[fa["CATEGORY"] == "Electronics"]["AVG_ACCURACY_PCT"].mean()
     overall_acc = fa["AVG_ACCURACY_PCT"].mean()
@@ -66,15 +87,17 @@ if page == "Overview":
     low = int((inv["RISK_LEVEL"] == "LOW").sum())
     overstock = int((inv["RISK_LEVEL"] == "OVERSTOCK").sum())
     var_total = inv["VALUE_AT_RISK"].sum()
+    elec_anomalies = int(anom[(anom["SERIES"] == "Electronics") & (anom["IS_ANOMALY"] == True)].shape[0])
 
-    st.error(f"INCIDENT: Electronics forecast accuracy {elec_acc:.1f}% (target 85%) - {stockout} SKUs in STOCKOUT, {low} LOW, ${var_total/1e6:.1f}M value at risk")
+    st.error(f"INCIDENT: Electronics forecast accuracy {elec_acc:.1f}% (target 85%) — {elec_anomalies} anomalous days detected by ML.ANOMALY_DETECTION — {stockout} SKUs in STOCKOUT, ${var_total/1e6:.1f}M value at risk")
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Avg Forecast Accuracy", f"{overall_acc:.1f}%", delta=f"{overall_acc - 85:+.1f}% vs target")
-    c2.metric("Stockout Risk", stockout, delta=f"{stockout} SKUs", delta_color="inverse")
-    c3.metric("Low Stock", low, delta=f"{low} SKUs", delta_color="inverse")
-    c4.metric("Overstock", overstock, delta=f"{overstock} SKUs", delta_color="inverse")
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1.metric("Avg Accuracy", f"{overall_acc:.1f}%", delta=f"{overall_acc - 85:+.1f}% vs target")
+    c2.metric("Stockout SKUs", stockout, delta=f"{stockout}", delta_color="inverse")
+    c3.metric("Low Stock", low, delta=f"{low}", delta_color="inverse")
+    c4.metric("Overstock", overstock, delta=f"{overstock}", delta_color="inverse")
     c5.metric("Value at Risk", f"${var_total/1e6:.1f}M")
+    c6.metric("Anomalies (7d)", int(anom[anom["IS_ANOMALY"] == True].shape[0]), delta="ML detected", delta_color="inverse")
 
     st.divider()
     cc1, cc2 = st.columns(2)
@@ -95,6 +118,48 @@ if page == "Overview":
         fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.4, marker=dict(colors=colors), sort=False, textinfo="label+percent")])
         fig.update_layout(title="Inventory Risk Distribution", height=350, margin=dict(t=40, b=10))
         st.plotly_chart(fig, use_container_width=True)
+
+
+elif page == "Real-Time Ingest":
+    st.title("Real-Time Demand Ingest")
+    st.caption("Partner demand signals flowing via Amazon S3 → SQS → Snowpipe auto-ingest")
+    try:
+        pipe_status = session.sql("SELECT SYSTEM$PIPE_STATUS('MANUFACTURING_DEMAND.RAW.DEMAND_REALTIME_PIPE')").to_pandas().iloc[0, 0]
+        ps = json.loads(pipe_status)
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Pipe Status", ps.get("executionState", "UNKNOWN"))
+        c2.metric("Pending Files", ps.get("pendingFileCount", 0))
+        last_ts = ps.get("lastIngestedTimestamp", "N/A")
+        c3.metric("Last Ingested", last_ts[:19] if last_ts != "N/A" else "N/A")
+        c4.metric("Last File", ps.get("lastIngestedFilePath", "N/A"))
+    except Exception:
+        st.warning("Snowpipe status unavailable")
+
+    st.divider()
+    rt = coerce_numeric(session.sql("SELECT * FROM MANUFACTURING_DEMAND.RAW.DEMAND_REALTIME ORDER BY INGESTED_AT DESC LIMIT 200").to_pandas())
+    if not rt.empty:
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Rows Ingested", f"{len(session.sql('SELECT 1 FROM MANUFACTURING_DEMAND.RAW.DEMAND_REALTIME').to_pandas()):,}")
+        c2.metric("Channels", int(rt["CHANNEL"].nunique()))
+        c3.metric("Products", int(rt["PRODUCT_ID"].nunique()))
+
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            ch = rt["CHANNEL"].value_counts().reset_index()
+            ch.columns = ["CHANNEL", "COUNT"]
+            labels = [str(v) for v in ch["CHANNEL"].tolist()]
+            values = [int(v) for v in ch["COUNT"].tolist()]
+            fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.4, textinfo="label+percent")])
+            fig.update_layout(title="Demand by Channel (Recent)", height=350, margin=dict(t=40, b=10))
+            st.plotly_chart(fig, use_container_width=True)
+        with cc2:
+            st.subheader("Latest 20 Rows")
+            st.dataframe(rt.head(20).reset_index(drop=True), use_container_width=True)
+    else:
+        st.info("No real-time data yet.")
+
+
+
 
 elif page == "Forecast Accuracy":
     st.title("Forecast Accuracy")
@@ -117,7 +182,7 @@ elif page == "Forecast Accuracy":
         x_vals = [float(v) for v in bias["BIAS"].tolist()]
         y_vals = [str(v) for v in bias["CATEGORY"].tolist()]
         fig = go.Figure(data=[go.Bar(x=x_vals, y=y_vals, orientation="h", marker=dict(color=x_vals, colorscale="RdBu", cmid=0), hovertemplate="<b>%{y}</b><br>Bias: %{x:.2f}<extra></extra>")])
-        fig.update_layout(title="Forecast Bias by Category (forecast - actual)", height=350, margin=dict(t=40, b=10), xaxis_title="Bias", yaxis_title="")
+        fig.update_layout(title="Forecast Bias by Category", height=350, margin=dict(t=40, b=10), xaxis_title="Bias", yaxis_title="")
         st.plotly_chart(fig, use_container_width=True)
     with cc2:
         ou = fa.groupby("CATEGORY")[["UNITS_OVER_FORECAST", "UNITS_UNDER_FORECAST"]].sum().reset_index()
@@ -130,6 +195,7 @@ elif page == "Forecast Accuracy":
         ])
         fig.update_layout(title="Over vs Under-Forecast Units", barmode="group", height=350, margin=dict(t=40, b=10), xaxis_title="Category", yaxis_title="Units")
         st.plotly_chart(fig, use_container_width=True)
+
 
 elif page == "Inventory Health":
     st.title("Inventory Health")
@@ -167,6 +233,49 @@ elif page == "Inventory Health":
     if not over.empty:
         st.dataframe(over[["PRODUCT_NAME", "CATEGORY", "WAREHOUSE_NAME", "AVG_ON_HAND", "DAYS_OF_SUPPLY", "VALUE_AT_RISK"]].reset_index(drop=True), use_container_width=True)
 
+
+elif page == "Demand Anomalies":
+    st.title("Demand Anomalies")
+    st.caption("ML.ANOMALY_DETECTION: demand spikes and crashes flagged per category")
+    anom = load_anomalies()
+    if anom.empty:
+        st.info("No anomaly data."); st.stop()
+    anom["SERIES"] = anom["SERIES"].astype(str).str.strip('"')
+
+    anom_count = anom.groupby("SERIES")["IS_ANOMALY"].sum().reset_index()
+    anom_count.columns = ["CATEGORY", "ANOMALY_COUNT"]
+    anom_count = anom_count.sort_values("ANOMALY_COUNT", ascending=False)
+
+    cols = st.columns(5)
+    for i, row in anom_count.iterrows():
+        idx = list(anom_count.index).index(i)
+        if idx < 5:
+            color = "inverse" if int(row["ANOMALY_COUNT"]) > 0 else "normal"
+            cols[idx].metric(str(row["CATEGORY"]), f"{int(row['ANOMALY_COUNT'])} anomalies", delta=f"of 8 days", delta_color=color)
+
+    st.divider()
+    cat_list = sorted(anom["SERIES"].str.strip('"').unique())
+    default_idx = cat_list.index("Electronics") if "Electronics" in cat_list else 0
+    selected_cat = st.selectbox("Category", cat_list, index=default_idx)
+    cat_data = anom[anom["SERIES"] == selected_cat].sort_values("TS")
+
+    fig = go.Figure()
+    dates = [str(v)[:10] for v in cat_data["TS"].tolist()]
+    fig.add_trace(go.Scatter(x=dates, y=[float(v) for v in cat_data["UPPER_BOUND"].tolist()], mode="lines", name="Upper Bound", line=dict(dash="dot", color="#95a5a6"), showlegend=True))
+    fig.add_trace(go.Scatter(x=dates, y=[float(v) for v in cat_data["LOWER_BOUND"].tolist()], mode="lines", name="Lower Bound", line=dict(dash="dot", color="#95a5a6"), fill="tonexty", fillcolor="rgba(149,165,166,0.1)", showlegend=True))
+    fig.add_trace(go.Scatter(x=dates, y=[float(v) for v in cat_data["FORECAST"].tolist()], mode="lines", name="Forecast", line=dict(color="#3498DB", width=2)))
+    anomaly_colors = ["#E74C3C" if v else "#2ECC71" for v in cat_data["IS_ANOMALY"].tolist()]
+    fig.add_trace(go.Scatter(x=dates, y=[float(v) for v in cat_data["Y"].tolist()], mode="markers+lines", name="Actual", marker=dict(color=anomaly_colors, size=12, line=dict(width=2, color="white")), line=dict(color="#2C3E50", width=1)))
+    fig.update_layout(title=f"Anomaly Detection: {selected_cat}", height=450, margin=dict(t=40, b=10), yaxis_title="Daily Demand (units)", xaxis_title="Date")
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("Anomaly Detail")
+    display_cols = ["SERIES", "TS", "Y", "FORECAST", "LOWER_BOUND", "UPPER_BOUND", "IS_ANOMALY", "PERCENTILE"]
+    st.dataframe(cat_data[[c for c in display_cols if c in cat_data.columns]].reset_index(drop=True), use_container_width=True)
+
+    st.info("Red dots = anomalous demand (outside 95% prediction interval). Electronics shows 5/8 days anomalous — the forecast model is systematically wrong for this category.")
+
+
 elif page == "Demand Signals":
     st.title("Demand Signals")
     st.caption("Top growing SKUs and velocity ranks")
@@ -196,7 +305,6 @@ elif page == "Demand Signals":
         vel = (sig.nsmallest(15, "VELOCITY_RANK") if "VELOCITY_RANK" in sig.columns else sig.head(15)).sort_values("AVG_DAILY_7D")
         cats = [str(v) for v in vel["CATEGORY"].tolist()]
         unique_cats = list(dict.fromkeys(cats))
-        palette = ["#3498DB", "#E74C3C", "#2ECC71", "#F39C12", "#9B59B6", "#1ABC9C", "#E67E22", "#34495E"]
         cmap = {c: palette[i % len(palette)] for i, c in enumerate(unique_cats)}
         bar_colors = [cmap[c] for c in cats]
         x_vals = [float(v) for v in vel["AVG_DAILY_7D"].tolist()]
@@ -205,33 +313,93 @@ elif page == "Demand Signals":
         fig.update_layout(title="Top 15 by 7d Daily Velocity", height=500, margin=dict(t=40, b=10, l=180), xaxis_title="Avg Daily (7d)", yaxis_title="")
         st.plotly_chart(fig, use_container_width=True)
 
-elif page == "Iceberg Export (AWS Glue)":
+
+elif page == "Planning Intelligence":
+    st.title("Planning Intelligence")
+    st.caption("The forecast says Electronics is broken — what do the planning documents say? Claude Sonnet classifies 80 docs in a single SQL statement.")
+
+    docs = coerce_numeric(session.sql("SELECT * FROM MANUFACTURING_DEMAND.AI.DOC_RISK_CLASSIFICATION ORDER BY RISK_LEVEL, DOC_ID").to_pandas())
+    if docs.empty:
+        st.warning("No classified docs."); st.stop()
+
+    risk_order = ["CRITICAL", "HIGH_RISK", "MEDIUM_RISK", "LOW_RISK"]
+    risk_colors_map = {"CRITICAL": "#E74C3C", "HIGH_RISK": "#F39C12", "MEDIUM_RISK": "#3498DB", "LOW_RISK": "#2ECC71"}
+    risk_icons = {"CRITICAL": "🔴", "HIGH_RISK": "🟠", "MEDIUM_RISK": "🔵", "LOW_RISK": "🟢"}
+    risk_counts = docs["RISK_LEVEL"].value_counts().to_dict()
+    total_docs = len(docs)
+    crit_count = risk_counts.get("CRITICAL", 0)
+    high_count = risk_counts.get("HIGH_RISK", 0)
+
+    cols = st.columns(4)
+    for i, rl in enumerate(risk_order):
+        cnt = risk_counts.get(rl, 0)
+        pct = f"{cnt / total_docs * 100:.0f}% of {total_docs}"
+        cols[i].metric(f"{risk_icons[rl]} {rl.replace('_', ' ')}", cnt, delta=pct, delta_color="off")
+
+    if crit_count + high_count > 0:
+        st.error(f"**{crit_count + high_count} documents** flagged CRITICAL or HIGH RISK — all {crit_count} CRITICAL docs are Demand Strategy, the same category driving the Electronics forecast failure.")
+
+    def color_risk(val):
+        c = risk_colors_map.get(val, "")
+        return f"background-color: {c}; color: white; border-radius: 4px; padding: 2px 6px" if c else ""
+
+    fc1, fc2 = st.columns(2)
+    selected_risk = fc1.selectbox("Risk level", ["All"] + risk_order, index=1)
+    categories = sorted(docs["DOC_CATEGORY"].unique().tolist())
+    selected_cat = fc2.selectbox("Category", ["All"] + categories)
+    filtered = docs.copy()
+    if selected_risk != "All":
+        filtered = filtered[filtered["RISK_LEVEL"] == selected_risk]
+    if selected_cat != "All":
+        filtered = filtered[filtered["DOC_CATEGORY"] == selected_cat]
+
+    display_df = filtered[["DOC_ID", "TITLE", "DOC_CATEGORY", "RISK_LEVEL", "SUMMARY"]].reset_index(drop=True)
+    st.dataframe(display_df.style.map(color_risk, subset=["RISK_LEVEL"]), use_container_width=True, height=480)
+
+
+
+elif page == "Iceberg Export (AWS)":
     st.title("Iceberg Forecast Export")
-    st.caption("Apache Iceberg on S3 + AWS Glue catalog `mfg_demand_iceberg` -> queryable from Athena & QuickSight")
+    st.caption("The forecast is built — now share it. Demand planners work in Snowflake, but the supply chain team runs Spark jobs, finance uses Athena, and contract manufacturers need raw files. Iceberg makes the forecast an open asset on S3 — one write, every reader.")
     try:
         s = session.sql("SELECT * FROM MANUFACTURING_DEMAND.LAKE.VW_FORECAST_ICEBERG_STATS").to_pandas().iloc[0]
         c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("Rows Exported", f"{int(s['ROW_COUNT']):,}")
-        c2.metric("Format", "Apache Iceberg")
-        c3.metric("Catalog", "AWS Glue")
+        c2.metric("Format", "Apache Iceberg v2")
+        c3.metric("Storage", "S3 (Parquet)")
         c4.metric("Distinct Categories", int(s["DISTINCT_CATEGORIES"]))
         c5.metric("Avg Accuracy %", f"{float(s['AVG_ACCURACY_PCT']):.1f}")
-        st.success(f"{int(s['ROW_COUNT']):,} forecast rows exported as Apache Iceberg under `s3://sg-retail-demos-2026/iceberg/manufacturing-demand/forecast/`. Glue catalog `mfg_demand_iceberg` registers the table; Athena and QuickSight read directly from S3 — no copy, no sync.")
-        sample = coerce_numeric(session.sql("SELECT * FROM MANUFACTURING_DEMAND.LAKE.FORECAST_ICEBERG SAMPLE (200 ROWS)").to_pandas())
-        st.subheader("Sample (first 200 rows)")
+
+        iceberg_info = session.sql("SELECT SYSTEM$GET_ICEBERG_TABLE_INFORMATION('MANUFACTURING_DEMAND.LAKE.FORECAST_ICEBERG') as info").to_pandas().iloc[0]["INFO"]
+        import json as _json
+        meta = _json.loads(iceberg_info)
+        s3_path = meta.get("metadataLocation", "")
+        st.info("**Why Iceberg?** Demand forecasts shouldn't be locked in one platform. Snowflake writes the forecast as open Apache Iceberg on S3 — Athena, Spark, Trino, QuickSight, or any Iceberg-compatible engine reads the same data without copies, exports, or sync jobs.")
+
+        st.subheader("S3 Metadata")
+        st.code(s3_path, language="text")
+
+        sample = coerce_numeric(session.sql("SELECT * FROM MANUFACTURING_DEMAND.LAKE.FORECAST_ICEBERG LIMIT 100").to_pandas())
+        st.subheader("Sample Rows")
         st.dataframe(sample.reset_index(drop=True), use_container_width=True)
-        st.subheader("Athena query (paste into Athena console)")
+        st.subheader("Athena Query")
         st.code("""SELECT category, AVG(accuracy_pct) avg_acc, COUNT(*) rows
-FROM mfg_demand_iceberg.forecast_iceberg
-GROUP BY category
-ORDER BY avg_acc;""", language="sql")
+FROM manufacturing_demand_iceberg.forecast_iceberg
+GROUP BY category ORDER BY avg_acc;""", language="sql")
     except Exception as e:
         st.error(f"Iceberg export error: {e}")
 
+
 elif page == "Ask Demand":
     st.title("Ask the Data")
-    st.caption("Natural language questions powered by Cortex Analyst")
-    samples = ["Which category has lowest forecast accuracy?", "How many SKUs are at stockout risk?", "What is the total value at risk?"]
+    st.caption("Natural language questions powered by Cortex Analyst + Semantic View")
+    samples = [
+        "Which category has lowest forecast accuracy?",
+        "How many SKUs are at stockout risk?",
+        "What is the total value at risk?",
+        "Which warehouse has the most overstock?",
+        "What is the average days of supply for Electronics?"
+    ]
     sample = st.selectbox("Sample questions:", [""] + samples)
     q = st.text_input("Or type your question:", value=sample)
     if q:
@@ -256,4 +424,3 @@ elif page == "Ask Demand":
                     st.error(parsed)
             except Exception as e:
                 st.error(f"Error: {e}")
-

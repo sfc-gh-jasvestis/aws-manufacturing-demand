@@ -22,9 +22,18 @@ Thumbs.db
 .snowflake/
 snowflake.yml
 
-# Secrets
+# Secrets & credentials
 .env
+.env.*
 *.pem
 *.key
+*.p12
 credentials.*
+*secret*
+
+# Build artifacts
 streamlit/output/
+/tmp/
+*.egg-info/
+dist/
+build/

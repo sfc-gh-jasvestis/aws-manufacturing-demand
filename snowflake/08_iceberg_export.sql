@@ -1,23 +1,17 @@
 -- ============================================================================
 -- 08_iceberg_export.sql
--- AWS hero: Apache Iceberg + AWS Glue catalog + Athena
+-- AWS hero: Apache Iceberg on S3 via Snowflake-managed external volume
 -- ----------------------------------------------------------------------------
--- Creates LAKE.FORECAST_ICEBERG, populated from CURATED.DEMAND_FORECAST_MODEL.
--- This is the open data lake target. The customer's Glue catalog
--- `mfg_demand_iceberg` registers this table; Athena and QuickSight read it
--- directly from S3 — no copy, no sync.
---
--- NOTE: The LAKE table here is a regular Snowflake table with the Iceberg
--- target schema. To convert it to a true managed Iceberg table:
---   1. Update trust policy on arn:aws:iam::018437500440:role/snowflake-retail-demos-role
---      to whitelist the current Snowflake IAM user/external_id (see DESC EXTERNAL VOLUME).
---   2. ALTER the table to ICEBERG with EXTERNAL_VOLUME = 'RETAIL_ICEBERG_VOLUME'
---      and BASE_LOCATION = 'manufacturing-demand/forecast/'.
+-- Creates LAKE.FORECAST_ICEBERG as a Snowflake-managed Iceberg table.
+-- Data is written as open Parquet/Iceberg on S3 (<YOUR_S3_BUCKET>).
+-- External volume: MANUFACTURING_ICEBERG_VOLUME
+-- Catalog integration: MANUFACTURING_GLUE_CATALOG_INT (for Glue registration)
+-- IAM role: <YOUR_IAM_ROLE>
 -- ============================================================================
 CREATE SCHEMA IF NOT EXISTS MANUFACTURING_DEMAND.LAKE;
 USE SCHEMA MANUFACTURING_DEMAND.LAKE;
 
-CREATE OR REPLACE TABLE FORECAST_ICEBERG (
+CREATE OR REPLACE ICEBERG TABLE FORECAST_ICEBERG (
     PRODUCT_ID        STRING,
     CATEGORY          STRING,
     FORECAST_DATE     DATE,
@@ -26,7 +20,10 @@ CREATE OR REPLACE TABLE FORECAST_ICEBERG (
     ACCURACY_PCT      FLOAT,
     DAYS_OF_INVENTORY NUMBER(10,2),
     RISK_LEVEL        STRING
-);
+)
+  CATALOG = 'SNOWFLAKE'
+  EXTERNAL_VOLUME = 'MANUFACTURING_ICEBERG_VOLUME'
+  BASE_LOCATION = 'manufacturing-demand/forecast/';
 
 INSERT INTO FORECAST_ICEBERG
 SELECT

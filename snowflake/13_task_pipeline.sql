@@ -1,0 +1,87 @@
+-- ============================================================================
+-- 13_task_pipeline.sql
+-- Snowflake hero: Task DAG for pipeline orchestration
+-- ----------------------------------------------------------------------------
+-- Creates a 3-task DAG:
+--   RETRAIN_FORECAST_TASK (weekly cron, root)
+--     ├── RESCAN_ANOMALIES_TASK (child: retrain anomaly model + re-detect)
+--     └── REFRESH_ICEBERG_EXPORT_TASK (child: refresh Iceberg export table)
+--
+-- No Airflow, no Step Functions — Snowflake is the orchestrator.
+-- ============================================================================
+USE SCHEMA MANUFACTURING_DEMAND.ML;
+
+CREATE OR REPLACE TASK RETRAIN_FORECAST_TASK
+    WAREHOUSE = CORTEX
+    SCHEDULE = 'USING CRON 0 6 * * 1 America/Los_Angeles'
+    COMMENT = 'Weekly forecast model retrain every Monday at 6 AM PT'
+AS
+EXECUTE IMMEDIATE
+$$
+BEGIN
+    CREATE OR REPLACE SNOWFLAKE.ML.FORECAST DEMAND_FORECAST_MODEL(
+        INPUT_DATA => SYSTEM$REFERENCE('VIEW', 'FORECAST_INPUT'),
+        SERIES_COLNAME => 'SERIES',
+        TIMESTAMP_COLNAME => 'DS',
+        TARGET_COLNAME => 'Y'
+    );
+END;
+$$;
+
+CREATE OR REPLACE TASK RESCAN_ANOMALIES_TASK
+    WAREHOUSE = CORTEX
+    AFTER MANUFACTURING_DEMAND.ML.RETRAIN_FORECAST_TASK
+AS
+EXECUTE IMMEDIATE
+$$
+BEGIN
+    CREATE OR REPLACE SNOWFLAKE.ML.ANOMALY_DETECTION DEMAND_ANOMALY_MODEL(
+        INPUT_DATA => TABLE(ANOMALY_TRAINING_DATA),
+        SERIES_COLNAME => 'SERIES',
+        TIMESTAMP_COLNAME => 'TS',
+        TARGET_COLNAME => 'Y',
+        LABEL_COLNAME => ''
+    );
+    CREATE OR REPLACE TABLE DEMAND_ANOMALY_RESULTS AS
+    SELECT * FROM TABLE(
+        DEMAND_ANOMALY_MODEL!DETECT_ANOMALIES(
+            INPUT_DATA => TABLE(ANOMALY_TEST_DATA),
+            SERIES_COLNAME => 'SERIES',
+            TIMESTAMP_COLNAME => 'TS',
+            TARGET_COLNAME => 'Y',
+            CONFIG_OBJECT => {'prediction_interval': 0.95}
+        )
+    );
+END;
+$$;
+
+CREATE OR REPLACE TASK REFRESH_ICEBERG_EXPORT_TASK
+    WAREHOUSE = CORTEX
+    AFTER MANUFACTURING_DEMAND.ML.RETRAIN_FORECAST_TASK
+AS
+EXECUTE IMMEDIATE
+$$
+BEGIN
+    TRUNCATE TABLE MANUFACTURING_DEMAND.LAKE.FORECAST_ICEBERG;
+    INSERT INTO MANUFACTURING_DEMAND.LAKE.FORECAST_ICEBERG
+    SELECT
+        ih.PRODUCT_ID,
+        ih.CATEGORY,
+        CURRENT_DATE() AS FORECAST_DATE,
+        ih.AVG_ON_HAND,
+        ih.AVG_ON_HAND - (ih.VALUE_AT_RISK / NULLIF(ih.AVG_ON_HAND, 0)),
+        COALESCE(fa.AVG_ACCURACY_PCT, 80.0) AS ACCURACY_PCT,
+        ih.DAYS_OF_SUPPLY,
+        ih.RISK_LEVEL
+    FROM MANUFACTURING_DEMAND.CURATED.INVENTORY_HEALTH ih
+    LEFT JOIN (
+        SELECT CATEGORY, AVG(AVG_ACCURACY_PCT) AS AVG_ACCURACY_PCT
+        FROM MANUFACTURING_DEMAND.CURATED.FORECAST_ACCURACY
+        GROUP BY CATEGORY
+    ) fa ON ih.CATEGORY = fa.CATEGORY;
+END;
+$$;
+
+ALTER TASK RESCAN_ANOMALIES_TASK RESUME;
+ALTER TASK REFRESH_ICEBERG_EXPORT_TASK RESUME;
+ALTER TASK RETRAIN_FORECAST_TASK RESUME;
