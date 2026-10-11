@@ -1,0 +1,142 @@
+{
+  "title": "Singapore Manufacturing Demand Planning",
+  "duration": "6 minutes",
+  "thesis": "Snowflake turns daily demand and plan exceptions for Straitsline Components, a fictional Singapore manufacturer, into exception and stockout KPIs, 7-day stockout risk scores, a network demand forecast, forecast error anomalies and grounded AI answers, all on one governed platform.",
+  "tabs": [
+    {
+      "id": "executive-cockpit",
+      "persona": {
+        "name": "Rachel Ong",
+        "role": "Head of Demand Planning, Straitsline Components (fictional)",
+        "avatar": ""
+      },
+      "talking_points": [
+        "Exception-free day rate, plan exceptions raised, stockouts and demand value in SGD for 40 planning items stocked at DCs in Tuas, Woodlands, Pasir Panjang, Changi and Tampines.",
+        "Every KPI is a numerator over a denominator in a curated dynamic table, so it can be traced back to item-day rows.",
+        "The exception-type chart shows which exceptions end in stockouts and which are always resolved, such as port congestion at the Pasir Panjang and Tuas DCs next to the container terminals."
+      ],
+      "show": [
+        "KPI cards",
+        "Daily plan exceptions",
+        "Plan exceptions by type",
+        "Planning item table"
+      ],
+      "call_out": "One governed set of demand planning KPIs, traceable to source rows",
+      "transition": {
+        "next_tab": "predictive",
+        "line": "Which planning items should the supply planners watch first?"
+      }
+    },
+    {
+      "id": "predictive",
+      "persona": {
+        "name": "Hafiz Rahman",
+        "role": "Supply Planner (fictional)",
+        "avatar": ""
+      },
+      "talking_points": [
+        "Snowflake ML classification scores each planning item's probability of a stockout in the next 7 days.",
+        "The holdout line shows precision and recall on the most recent labelled days, against the base rate.",
+        "The forecast projects network-wide demand in units for 14 days, and anomaly detection flags forecast error outliers per item."
+      ],
+      "show": [
+        "Holdout metrics",
+        "Risk by planning item",
+        "Demand forecast",
+        "Forecast error anomalies"
+      ],
+      "call_out": "Honest, evaluated ML inside the data platform",
+      "transition": {
+        "next_tab": "planning",
+        "line": "Are our planning controls keeping up?"
+      }
+    },
+    {
+      "id": "planning",
+      "persona": {
+        "name": "Rachel Ong",
+        "role": "Head of Demand Planning, Straitsline Components (fictional)",
+        "avatar": ""
+      },
+      "talking_points": [
+        "Plan review adherence, supplier confirmation coverage and pending confirmations frame the control gaps.",
+        "Plan review adherence against stockouts by planning item shows where missed reviews and stockouts move together; it is an association, not proof of cause.",
+        "The action memo drafts three prioritised actions from the KPI, planning item, exception-type and risk tables only."
+      ],
+      "show": [
+        "Plan review adherence and supplier confirmation coverage",
+        "Plan review adherence vs stockouts",
+        "Action memo"
+      ],
+      "call_out": "Grounded draft actions, with a human in the loop",
+      "transition": {
+        "next_tab": "live",
+        "line": "What happens when a rush order arrives right now?"
+      }
+    },
+    {
+      "id": "live",
+      "persona": {
+        "name": "Hafiz Rahman",
+        "role": "Supply Planner (fictional)",
+        "avatar": ""
+      },
+      "talking_points": [
+        "Live partner order-line events land in RAW.LIVE_DEMAND, from the simulator or from Amazon Data Firehose through Snowpipe.",
+        "The Snowflake alert logs EXCEPTION events with an SOP hint and the item's current risk band, then emails the on-call supply planner."
+      ],
+      "show": [
+        "Events loaded and lag",
+        "Latest demand events",
+        "Alert log"
+      ],
+      "call_out": "From rush order to planning case in one platform",
+      "transition": {
+        "next_tab": "ask-ai",
+        "line": "Now ask the data directly."
+      }
+    },
+    {
+      "id": "ask-ai",
+      "persona": {
+        "name": "Rachel Ong",
+        "role": "Head of Demand Planning, Straitsline Components (fictional)",
+        "avatar": ""
+      },
+      "talking_points": [
+        "The Cortex Agent uses Cortex Analyst over the semantic view for metrics, and Cortex Search over 14 synthetic plan exception handling SOPs.",
+        "Each answer shows the generated SQL and the SOPs it cited."
+      ],
+      "show": [
+        "Ask a sample question",
+        "Generated SQL",
+        "SOP citations"
+      ],
+      "call_out": "Natural-language answers you can audit",
+      "transition": {
+        "next_tab": "architecture",
+        "line": "Here is how it is built."
+      }
+    },
+    {
+      "id": "architecture",
+      "persona": {
+        "name": "Rachel Ong",
+        "role": "Head of Demand Planning, Straitsline Components (fictional)",
+        "avatar": ""
+      },
+      "talking_points": [
+        "Two builds share one core: Snowflake only, or AWS + Snowflake (Data Firehose, Bedrock, QuickSight and Amazon Q).",
+        "Everything shown is synthetic demo data, rebuilt reproducibly from the repo."
+      ],
+      "show": [
+        "Both architecture diagrams"
+      ],
+      "call_out": "One governed core, with an optional AWS edge",
+      "transition": {
+        "next_tab": "",
+        "line": "Questions?"
+      }
+    }
+  ]
+}
